@@ -95,12 +95,12 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 		const svg = this.container.createSvg('svg');
 		svg.style.width = '100%';
-		svg.style.height = '500px';
-		svg.style.overflow = 'visible';
+		svg.style.height = '600px';
+		svg.style.overflow = 'auto';
 
 		const g = svg.createSvg('g');
 
-		this.renderNode(this.root, g, 0, 0, 0);
+		this.renderNode(this.root, g, 50, 300, 0);
 		this.centerTree(g, svg);
 	}
 
@@ -115,88 +115,89 @@ class MindMapRenderer extends MarkdownRenderChild {
 		nodeGroup.setAttribute('class', 'mindmap-node');
 		nodeGroup.setAttribute('data-id', node.id);
 
-		// 节点矩形
-		const rect = nodeGroup.createSvg('rect');
-		const padding = 10;
-		const textWidth = node.text.length * 8 + padding * 2;
-		const textHeight = 30;
+		// 节点圆形（参考示例图片的空心圆样式）
+		const circle = nodeGroup.createSvg('circle');
+		const nodeRadius = 6;
+		circle.setAttribute('cx', x.toString());
+		circle.setAttribute('cy', y.toString());
+		circle.setAttribute('r', nodeRadius.toString());
+		circle.setAttribute('fill', 'white');
+		circle.setAttribute('stroke', '#4F46E5');
+		circle.setAttribute('stroke-width', '2');
+		circle.style.cursor = 'pointer';
 
-		rect.setAttribute('x', x.toString());
-		rect.setAttribute('y', y.toString());
-		rect.setAttribute('width', textWidth.toString());
-		rect.setAttribute('height', textHeight.toString());
-		rect.setAttribute('rx', '5');
-		rect.setAttribute('ry', '5');
-		rect.setAttribute('fill', depth === 0 ? '#4CAF50' : '#2196F3');
-		rect.setAttribute('stroke', '#333');
-		rect.setAttribute('stroke-width', '2');
-		rect.style.cursor = 'pointer';
-
-		// 节点文本
+		// 节点文本（显示在节点右侧，无背景框）
 		const text = nodeGroup.createSvg('text');
-		text.setAttribute('x', (x + padding + 4).toString());
-		text.setAttribute('y', (y + 20).toString());
-		text.setAttribute('fill', 'white');
-		text.setAttribute('font-size', '14');
-		text.setAttribute('font-family', 'Arial, sans-serif');
-		text.textContent = node.text.length > 20 ? node.text.substring(0, 20) + '...' : node.text;
+		text.setAttribute('x', (x + 15).toString());
+		text.setAttribute('y', (y + 5).toString());
+		text.setAttribute('fill', '#000000');
+		text.setAttribute('font-size', depth === 0 ? '16' : '14');
+		text.setAttribute('font-family', 'Segoe UI, Arial, sans-serif');
+		text.setAttribute('font-weight', depth === 0 ? 'bold' : 'normal');
+		text.style.cursor = 'pointer';
+		text.textContent = node.text;
 
 		// 点击事件
-		rect.addEventListener('click', () => {
-			node.collapsed = !node.collapsed;
-			this.refresh();
-		});
+		const toggleNode = () => {
+			if (node.children.length > 0) {
+				node.collapsed = !node.collapsed;
+				this.refresh();
+			}
+		};
 
-		text.addEventListener('click', () => {
-			node.collapsed = !node.collapsed;
-			this.refresh();
-		});
+		circle.addEventListener('click', toggleNode);
+		text.addEventListener('click', toggleNode);
 
 		// 如果有子节点且未折叠，渲染子节点
 		if (node.children.length > 0 && !node.collapsed) {
-			const childY = y + textHeight + 40;
-			const childWidth = this.calculateTreeWidth(node);
-			let currentX = x - (childWidth / 2);
+			const childX = x + this.calculateTextWidth(node.text) + 50;
+			const totalHeight = this.calculateTreeHeight(node);
+			let currentY = y - (totalHeight / 2);
 
-			// 绘制连接线
+			// 绘制连接线和子节点
 			for (const child of node.children) {
-				const childSize = this.calculateTreeWidth(child);
-				const childX = currentX + (childSize / 2) - (child.text.length * 8 + 20) / 2;
+				const childHeight = this.calculateTreeHeight(child);
+				const childY = currentY + (childHeight / 2);
 
+				// 使用贝塞尔曲线连接节点（参考示例图片的曲线样式）
 				const line = parent.createSvg('path');
-				line.setAttribute('d', `M${x + textWidth / 2},${y + textHeight} C${x + textWidth / 2},${y + textHeight + 20} ${childX + (child.text.length * 8 + 20) / 2},${childY - 20} ${childX + (child.text.length * 8 + 20) / 2},${childY}`);
-				line.setAttribute('stroke', '#666');
-				line.setAttribute('stroke-width', '2');
+				const startX = x + nodeRadius;
+				const startY = y;
+				const endX = childX - nodeRadius;
+				const endY = childY;
+				const controlX1 = startX + (endX - startX) * 0.5;
+				const controlY1 = startY;
+				const controlX2 = startX + (endX - startX) * 0.5;
+				const controlY2 = endY;
+
+				line.setAttribute('d', `M${startX},${startY} C${controlX1},${controlY1} ${controlX2},${controlY2} ${endX},${endY}`);
+				line.setAttribute('stroke', '#4F46E5');
+				line.setAttribute('stroke-width', '1.5');
 				line.setAttribute('fill', 'none');
 
-				currentX += childSize;
-			}
-
-			// 渲染子节点
-			currentX = x - (childWidth / 2);
-			for (const child of node.children) {
-				const childSize = this.calculateTreeWidth(child);
-				const childX = currentX + (childSize / 2) - (child.text.length * 8 + 20) / 2;
+				// 渲染子节点
 				this.renderNode(child, parent, childX, childY, depth + 1);
-				currentX += childSize;
+
+				currentY += childHeight + 20; // 子节点之间的垂直间距
 			}
 		} else if (node.children.length > 0 && node.collapsed) {
-			// 显示折叠指示器
+			// 显示折叠指示器（橙色圆圈）
 			const indicator = nodeGroup.createSvg('circle');
-			indicator.setAttribute('cx', (x + textWidth / 2).toString());
-			indicator.setAttribute('cy', (y + textHeight + 15).toString());
-			indicator.setAttribute('r', '10');
+			indicator.setAttribute('cx', (x + nodeRadius + 10).toString());
+			indicator.setAttribute('cy', y.toString());
+			indicator.setAttribute('r', '8');
 			indicator.setAttribute('fill', '#FF9800');
-			indicator.setAttribute('stroke', '#333');
-			indicator.setAttribute('stroke-width', '2');
+			indicator.setAttribute('stroke', '#4F46E5');
+			indicator.setAttribute('stroke-width', '1.5');
 			indicator.style.cursor = 'pointer';
 
 			const plusText = nodeGroup.createSvg('text');
-			plusText.setAttribute('x', (x + textWidth / 2 - 4).toString());
-			plusText.setAttribute('y', (y + textHeight + 19).toString());
+			plusText.setAttribute('x', (x + nodeRadius + 6).toString());
+			plusText.setAttribute('y', (y + 4).toString());
 			plusText.setAttribute('fill', 'white');
-			plusText.setAttribute('font-size', '14');
+			plusText.setAttribute('font-size', '12');
 			plusText.setAttribute('font-weight', 'bold');
+			plusText.setAttribute('font-family', 'Segoe UI, Arial, sans-serif');
 			plusText.textContent = '+';
 
 			indicator.addEventListener('click', () => {
@@ -213,29 +214,50 @@ class MindMapRenderer extends MarkdownRenderChild {
 		return { x, y };
 	}
 
+	private calculateTextWidth(text: string): number {
+		// 估算文本宽度（每个字符约8像素）
+		return text.length * 8 + 20;
+	}
+
+	private calculateTreeHeight(node: MindMapNode): number {
+		if (node.children.length === 0 || node.collapsed) {
+			return 40; // 单个节点的高度
+		}
+
+		let totalHeight = 0;
+		for (const child of node.children) {
+			totalHeight += this.calculateTreeHeight(child) + 20; // 子节点之间的间距
+		}
+
+		return totalHeight - 20; // 减去最后一个间距
+	}
+
 	private calculateTreeWidth(node: MindMapNode): number {
 		if (node.children.length === 0 || node.collapsed) {
-			return node.text.length * 8 + 20;
+			return this.calculateTextWidth(node.text) + 30;
 		}
 
-		let totalWidth = 0;
+		let maxWidth = this.calculateTextWidth(node.text) + 30;
 		for (const child of node.children) {
-			totalWidth += this.calculateTreeWidth(child);
+			const childWidth = this.calculateTreeWidth(child);
+			maxWidth = Math.max(maxWidth, childWidth + 100); // 子节点水平偏移
 		}
 
-		return Math.max(node.text.length * 8 + 20, totalWidth + 40);
+		return maxWidth;
 	}
 
 	private centerTree(g: SVGElement, svg: SVGElement) {
 		const bbox = g.getBBox();
 		const svgWidth = svg.clientWidth || 800;
-		const svgHeight = svg.clientHeight || 500;
+		const svgHeight = svg.clientHeight || 600;
 
-		const scaleX = Math.min(1, (svgWidth - 40) / bbox.width);
+		// 计算缩放比例，优先适应宽度
+		const scaleX = Math.min(1, (svgWidth - 60) / bbox.width);
 		const scaleY = Math.min(1, (svgHeight - 40) / bbox.height);
-		const scale = Math.min(scaleX, scaleY);
+		const scale = Math.min(scaleX, scaleY, 1); // 不放大，只缩小
 
-		const translateX = (svgWidth - bbox.width * scale) / 2 - bbox.x * scale;
+		// 计算居中位置
+		const translateX = 30 - bbox.x * scale;
 		const translateY = (svgHeight - bbox.height * scale) / 2 - bbox.y * scale;
 
 		g.setAttribute('transform', `translate(${translateX}, ${translateY}) scale(${scale})`);
