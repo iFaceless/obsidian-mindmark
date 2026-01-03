@@ -555,9 +555,19 @@ class MindMapRenderer extends MarkdownRenderChild {
 	private calculateTextWidth(text: string, depth: number): number {
 		// 根据深度计算字体大小
 		const fontSize = Math.max(10, 13 - depth);
-		// 估算文本宽度
-		const charWidth = fontSize * 0.55;
-		return text.length * charWidth + 16; // 留出边距
+		// 分别计算中文和非中文字符的宽度
+		let totalWidth = 0;
+		for (const char of text) {
+			// 检测中文字符（包括中文标点）
+			if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(char)) {
+				// 中文字符宽度约等于字体大小
+				totalWidth += fontSize;
+			} else {
+				// 英文和其他字符宽度约为字体大小的0.55倍
+				totalWidth += fontSize * 0.55;
+			}
+		}
+		return totalWidth + 16; // 留出边距
 	}
 
 	private calculateTreeHeight(node: MindMapNode): number {
