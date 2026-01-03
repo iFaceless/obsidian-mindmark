@@ -19,11 +19,13 @@ interface MindMapNode {
 interface MindMapSettings {
 	enableWheelZoom: boolean;
 	defaultRenderMode: RenderMode;
+	notePanelWidth: number;
 }
 
 const DEFAULT_SETTINGS: MindMapSettings = {
 	enableWheelZoom: false,
-	defaultRenderMode: 'clockwise'
+	defaultRenderMode: 'clockwise',
+	notePanelWidth: 300
 };
 
 // 用于保存节点折叠状态的映射
@@ -93,10 +95,28 @@ class MindMapSettingTab extends PluginSettingTab {
 					this.plugin.settings.enableWheelZoom = value;
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('Note panel width')
+			.setDesc('Width of the note panel in pixels.')
+			.addText(text => text
+				.setValue(this.plugin.settings.notePanelWidth.toString())
+				.setPlaceholder('300')
+				.onChange(async (value) => {
+					const width = parseInt(value);
+					if (!isNaN(width) && width >= 200 && width <= 800) {
+						this.plugin.settings.notePanelWidth = width;
+						await this.plugin.saveSettings();
+						// Update all open mind map panels
+						MindMapRenderer.updateAllNotePanelWidth(width);
+					}
+				}));
 	}
 }
 
 class MindMapRenderer extends MarkdownRenderChild {
+	private static instances: MindMapRenderer[] = [];
+
 	private source: string;
 	private container: HTMLElement;
 	private root: MindMapNode | null = null;
@@ -123,10 +143,21 @@ class MindMapRenderer extends MarkdownRenderChild {
 		this.settings = settings;
 		this.app = app;
 		this.renderMode = settings.defaultRenderMode;
+		
+		// 添加到实例列表
+		MindMapRenderer.instances.push(this);
 	}
 
 	onload() {
 		this.render();
+	}
+
+	onunload() {
+		// 从实例列表中移除
+		const index = MindMapRenderer.instances.indexOf(this);
+		if (index > -1) {
+			MindMapRenderer.instances.splice(index, 1);
+		}
 	}
 
 	private parseMarkdownList(text: string): MindMapNode | null {
@@ -327,7 +358,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			position: absolute;
 			top: 0;
 			right: 0;
-			width: 300px;
+			width: ${this.settings.notePanelWidth}px;
 			height: 100%;
 			background: #fffef0;
 			border-left: 1px solid #e6ddb3;
@@ -621,6 +652,19 @@ class MindMapRenderer extends MarkdownRenderChild {
 		if (this.notePanel) {
 			this.notePanel.style.transform = 'translateX(100%)';
 		}
+	}
+
+	private updateNotePanelWidth() {
+		if (this.notePanel) {
+			this.notePanel.style.width = `${this.settings.notePanelWidth}px`;
+		}
+	}
+
+	static updateAllNotePanelWidth(width: number) {
+		MindMapRenderer.instances.forEach(renderer => {
+			renderer.settings.notePanelWidth = width;
+			renderer.updateNotePanelWidth();
+		});
 	}
 
 	private expandAll() {
