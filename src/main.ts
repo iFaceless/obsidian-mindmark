@@ -336,8 +336,8 @@ class MindMapRenderer extends MarkdownRenderChild {
 				break;
 			case 'logic':
 			default:
-				// 大纲模式使用与中心辐射相同的渲染样式
-				this.renderClockwise(this.root, linesGroup, nodesGroup);
+				// 大纲模式：全部向右展开
+				this.renderLogic(this.root, linesGroup, nodesGroup);
 				break;
 		}
 		this.centerTree(g, svg);
@@ -897,15 +897,15 @@ class MindMapRenderer extends MarkdownRenderChild {
 		this.applyTransform();
 	}
 
-	// 顺时针模式渲染
-	private renderClockwise(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
+	// 大纲模式渲染（全部向右展开）
+	private renderLogic(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
 		const lineColor = '#605CE5';
 		const startX = 50;
 		const totalHeight = this.calculateClockwiseTreeHeight(root);
 		const startY = totalHeight / 2 + 50;
 
 		const textWidth = this.calculateTextWidth(root.text, 0);
-		const noteIconWidth = root.note ? 20 : 0; // 备注图标宽度
+		const noteIconWidth = root.note ? 20 : 0;
 		const totalNodeWidth = textWidth + noteIconWidth;
 		const nodeHeight = 24;
 
@@ -933,13 +933,15 @@ class MindMapRenderer extends MarkdownRenderChild {
 			this.addNoteIcon(nodesGroup, startX + textWidth + 2, startY, root.note, 14, 'white');
 		}
 
+		// 全部子节点向右展开
 		if (!root.collapsed && root.children.length > 0) {
 			const parentRight = startX + totalNodeWidth;
-			this.renderClockwiseChildren(root.children, linesGroup, nodesGroup, parentRight, startY, 1);
+			this.renderLogicChildren(root.children, linesGroup, nodesGroup, parentRight, startY, 1);
 		}
 	}
 
-	private renderClockwiseChildren(
+	// 大纲模式子节点渲染（全部向右）
+	private renderLogicChildren(
 		children: MindMapNode[],
 		linesGroup: SVGGElement,
 		nodesGroup: SVGGElement,
@@ -964,7 +966,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			const fontSize = Math.max(10, 13 - depth);
 			const textWidth = this.calculateTextWidth(child.text, depth);
-			const noteIconWidth = child.note ? 18 : 0; // 备注图标宽度
+			const noteIconWidth = child.note ? 18 : 0;
 			const totalNodeWidth = textWidth + noteIconWidth;
 			const nodeHeight = fontSize + 10;
 			const nodeX = parentRight + horizontalGap;
@@ -997,7 +999,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			text.setAttribute('text-anchor', 'middle');
 			text.textContent = child.text;
 
-			// 备注图标（在文字后面）
+			// 备注图标
 			if (child.note) {
 				this.addNoteIcon(nodesGroup, nodeX + textWidth + 2, childCenterY, child.note, fontSize, lineColor);
 			}
@@ -1005,7 +1007,213 @@ class MindMapRenderer extends MarkdownRenderChild {
 			// 递归渲染子节点
 			if (!child.collapsed && child.children.length > 0) {
 				const childRight = nodeX + totalNodeWidth;
-				this.renderClockwiseChildren(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
+				this.renderLogicChildren(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
+			}
+
+			currentY += childHeight + verticalGap;
+		});
+	}
+
+	// 中心辐射模式渲染（左右对称布局）
+	private renderClockwise(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
+		const lineColor = '#605CE5';
+		const centerX = 400;
+		const centerY = 300;
+
+		const textWidth = this.calculateTextWidth(root.text, 0);
+		const noteIconWidth = root.note ? 20 : 0;
+		const totalNodeWidth = textWidth + noteIconWidth;
+		const nodeHeight = 24;
+
+		// 根节点背景（居中）
+		const rootX = centerX - totalNodeWidth / 2;
+		const bgRect = nodesGroup.createSvg('rect');
+		bgRect.setAttribute('x', rootX.toString());
+		bgRect.setAttribute('y', (centerY - nodeHeight / 2).toString());
+		bgRect.setAttribute('width', totalNodeWidth.toString());
+		bgRect.setAttribute('height', nodeHeight.toString());
+		bgRect.setAttribute('rx', '4');
+		bgRect.setAttribute('fill', lineColor);
+
+		// 根节点文字
+		const rootText = nodesGroup.createSvg('text');
+		rootText.setAttribute('x', (rootX + textWidth / 2).toString());
+		rootText.setAttribute('y', (centerY + 5).toString());
+		rootText.setAttribute('fill', 'white');
+		rootText.setAttribute('font-size', '14');
+		rootText.setAttribute('font-weight', '600');
+		rootText.setAttribute('text-anchor', 'middle');
+		rootText.textContent = root.text;
+
+		// 根节点备注图标
+		if (root.note) {
+			this.addNoteIcon(nodesGroup, rootX + textWidth + 2, centerY, root.note, 14, 'white');
+		}
+
+		if (!root.collapsed && root.children.length > 0) {
+			const children = root.children;
+			// 计算左右分配：前半部分在右边，后半部分在左边
+			// 奇数时右边多一个
+			const rightCount = Math.ceil(children.length / 2);
+			const rightChildren = children.slice(0, rightCount);
+			const leftChildren = children.slice(rightCount);
+
+			// 渲染右侧子节点
+			if (rightChildren.length > 0) {
+				const parentRight = rootX + totalNodeWidth;
+				this.renderClockwiseChildrenRight(rightChildren, linesGroup, nodesGroup, parentRight, centerY, 1);
+			}
+
+			// 渲染左侧子节点（镜像布局）
+			if (leftChildren.length > 0) {
+				const parentLeft = rootX;
+				this.renderClockwiseChildrenLeft(leftChildren, linesGroup, nodesGroup, parentLeft, centerY, 1);
+			}
+		}
+	}
+
+	// 右侧子节点渲染
+	private renderClockwiseChildrenRight(
+		children: MindMapNode[],
+		linesGroup: SVGGElement,
+		nodesGroup: SVGGElement,
+		parentRight: number,
+		parentY: number,
+		depth: number
+	) {
+		const lineColor = '#605CE5';
+		const horizontalGap = 30;
+		const verticalGap = 8;
+
+		const childHeights = children.map(child => this.calculateClockwiseTreeHeight(child));
+		const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
+
+		let currentY = parentY - totalChildrenHeight / 2;
+		const lineStartX = parentRight;
+		const turnX = parentRight + horizontalGap / 2;
+
+		children.forEach((child, i) => {
+			const childHeight = childHeights[i];
+			const childCenterY = currentY + childHeight / 2;
+
+			const fontSize = Math.max(10, 13 - depth);
+			const textWidth = this.calculateTextWidth(child.text, depth);
+			const noteIconWidth = child.note ? 18 : 0;
+			const totalNodeWidth = textWidth + noteIconWidth;
+			const nodeHeight = fontSize + 10;
+			const nodeX = parentRight + horizontalGap;
+
+			// 绘制连接线
+			const path = linesGroup.createSvg('path');
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeX} ${childCenterY}`;
+			path.setAttribute('d', d);
+			path.setAttribute('stroke', lineColor);
+			path.setAttribute('stroke-width', '1.5');
+			path.setAttribute('fill', 'none');
+
+			// 节点背景
+			const bgRect = nodesGroup.createSvg('rect');
+			bgRect.setAttribute('x', nodeX.toString());
+			bgRect.setAttribute('y', (childCenterY - nodeHeight / 2).toString());
+			bgRect.setAttribute('width', totalNodeWidth.toString());
+			bgRect.setAttribute('height', nodeHeight.toString());
+			bgRect.setAttribute('rx', '3');
+			bgRect.setAttribute('fill', 'white');
+			bgRect.setAttribute('stroke', lineColor);
+			bgRect.setAttribute('stroke-width', '1');
+
+			// 节点文字
+			const text = nodesGroup.createSvg('text');
+			text.setAttribute('x', (nodeX + textWidth / 2).toString());
+			text.setAttribute('y', (childCenterY + fontSize / 3).toString());
+			text.setAttribute('fill', lineColor);
+			text.setAttribute('font-size', fontSize.toString());
+			text.setAttribute('text-anchor', 'middle');
+			text.textContent = child.text;
+
+			// 备注图标
+			if (child.note) {
+				this.addNoteIcon(nodesGroup, nodeX + textWidth + 2, childCenterY, child.note, fontSize, lineColor);
+			}
+
+			// 递归渲染子节点
+			if (!child.collapsed && child.children.length > 0) {
+				const childRight = nodeX + totalNodeWidth;
+				this.renderClockwiseChildrenRight(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
+			}
+
+			currentY += childHeight + verticalGap;
+		});
+	}
+
+	// 左侧子节点渲染（镜像布局）
+	private renderClockwiseChildrenLeft(
+		children: MindMapNode[],
+		linesGroup: SVGGElement,
+		nodesGroup: SVGGElement,
+		parentLeft: number,
+		parentY: number,
+		depth: number
+	) {
+		const lineColor = '#605CE5';
+		const horizontalGap = 30;
+		const verticalGap = 8;
+
+		const childHeights = children.map(child => this.calculateClockwiseTreeHeight(child));
+		const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
+
+		let currentY = parentY - totalChildrenHeight / 2;
+		const lineStartX = parentLeft;
+		const turnX = parentLeft - horizontalGap / 2;
+
+		children.forEach((child, i) => {
+			const childHeight = childHeights[i];
+			const childCenterY = currentY + childHeight / 2;
+
+			const fontSize = Math.max(10, 13 - depth);
+			const textWidth = this.calculateTextWidth(child.text, depth);
+			const noteIconWidth = child.note ? 18 : 0;
+			const totalNodeWidth = textWidth + noteIconWidth;
+			const nodeHeight = fontSize + 10;
+			const nodeX = parentLeft - horizontalGap - totalNodeWidth; // 左侧节点X坐标
+
+			// 绘制连接线（镜像）
+			const path = linesGroup.createSvg('path');
+			const nodeRight = nodeX + totalNodeWidth;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeRight} ${childCenterY}`;
+			path.setAttribute('d', d);
+			path.setAttribute('stroke', lineColor);
+			path.setAttribute('stroke-width', '1.5');
+			path.setAttribute('fill', 'none');
+
+			// 节点背景
+			const bgRect = nodesGroup.createSvg('rect');
+			bgRect.setAttribute('x', nodeX.toString());
+			bgRect.setAttribute('y', (childCenterY - nodeHeight / 2).toString());
+			bgRect.setAttribute('width', totalNodeWidth.toString());
+			bgRect.setAttribute('height', nodeHeight.toString());
+			bgRect.setAttribute('rx', '3');
+			bgRect.setAttribute('fill', 'white');
+			bgRect.setAttribute('stroke', lineColor);
+			bgRect.setAttribute('stroke-width', '1');
+
+			// 节点文字
+			const text = nodesGroup.createSvg('text');
+			text.setAttribute('x', (nodeX + textWidth / 2).toString());
+			text.setAttribute('y', (childCenterY + fontSize / 3).toString());
+			text.setAttribute('fill', lineColor);
+			text.setAttribute('font-size', fontSize.toString());
+			text.setAttribute('text-anchor', 'middle');
+			text.textContent = child.text;
+
+			// 备注图标
+			if (child.note) {
+				this.addNoteIcon(nodesGroup, nodeX + textWidth + 2, childCenterY, child.note, fontSize, lineColor);
+			}
+
+			// 递归渲染子节点（继续向左展开）
+			if (!child.collapsed && child.children.length > 0) {
+				this.renderClockwiseChildrenLeft(child.children, linesGroup, nodesGroup, nodeX, childCenterY, depth + 1);
 			}
 
 			currentY += childHeight + verticalGap;
