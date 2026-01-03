@@ -1,11 +1,11 @@
-import { Plugin, MarkdownPostProcessorContext, MarkdownRenderChild, PluginSettingTab, App, Setting, MarkdownRenderer } from 'obsidian';
+import { Plugin, MarkdownPostProcessorContext, MarkdownRenderChild, PluginSettingTab, App, Setting, MarkdownRenderer, Notice } from 'obsidian';
 
 // 渲染模式枚举
 type RenderMode = 'logic' | 'clockwise';
 
 const RENDER_MODE_NAMES: Record<RenderMode, string> = {
-	'logic': '大纲',
-	'clockwise': '中心辐射'
+	'logic': 'Outline View',
+	'clockwise': 'Radial Mind Map'
 };
 
 interface MindMapNode {
@@ -23,7 +23,7 @@ interface MindMapSettings {
 
 const DEFAULT_SETTINGS: MindMapSettings = {
 	enableWheelZoom: false,
-	defaultRenderMode: 'logic'
+	defaultRenderMode: 'clockwise'
 };
 
 // 用于保存节点折叠状态的映射
@@ -332,12 +332,12 @@ class MindMapRenderer extends MarkdownRenderChild {
 		// 根据渲染模式选择不同的渲染方法
 		switch (this.renderMode) {
 			case 'clockwise':
-				this.renderClockwise(this.root, linesGroup, nodesGroup);
+				this.renderRadialMindMap(this.root, linesGroup, nodesGroup);
 				break;
 			case 'logic':
 			default:
 				// 大纲模式：全部向右展开
-				this.renderLogic(this.root, linesGroup, nodesGroup);
+				this.renderOutlineView(this.root, linesGroup, nodesGroup);
 				break;
 		}
 		this.centerTree(g, svg);
@@ -379,35 +379,48 @@ class MindMapRenderer extends MarkdownRenderChild {
 		this.styleButton(resetBtn);
 		resetBtn.addEventListener('click', () => this.resetZoom());
 
+		// Separator 2
+		const separator2 = controls.createSpan();
+		separator2.style.cssText = 'width: 1px; background: #ddd; margin: 0 5px;';
+
+		// Copy as PNG button
+		const copyBtn = controls.createEl('button');
+		copyBtn.textContent = '📷';
+		this.styleButton(copyBtn);
+		copyBtn.title = 'Copy as PNG';
+		copyBtn.addEventListener('click', () => this.copyAsPNG());
+
 		// Separator
 		const separator = controls.createSpan();
 		separator.style.cssText = 'width: 1px; background: #ddd; margin: 0 5px;';
 
 		// Render mode dropdown
-		const modeBtn = controls.createEl('button');
-		modeBtn.textContent = this.getModeIcon(this.renderMode);
-		modeBtn.title = `切换渲染模式: ${RENDER_MODE_NAMES[this.renderMode]}`;
-		this.styleButton(modeBtn);
-		modeBtn.style.width = 'auto';
-		modeBtn.style.padding = '0 8px';
-		modeBtn.style.fontSize = '12px';
-		modeBtn.addEventListener('click', () => this.cycleRenderMode(modeBtn));
-	}
+		const modeSelect = controls.createEl('select');
+		modeSelect.style.cssText = `
+			padding: 4px 8px;
+			border: 1px solid #ddd;
+			border-radius: 4px;
+			background: white;
+			cursor: pointer;
+			font-size: 12px;
+			line-height: 1;
+		`;
 
-	private getModeIcon(mode: RenderMode): string {
-		switch (mode) {
-			case 'logic': return '→';
-			case 'clockwise': return '↻';
-		}
-	}
+		// 添加模式选项
+		Object.entries(RENDER_MODE_NAMES).forEach(([key, name]) => {
+			const option = modeSelect.createEl('option');
+			option.value = key;
+			option.textContent = name;
+		});
 
-	private cycleRenderMode(btn: HTMLButtonElement) {
-		const modes: RenderMode[] = ['logic', 'clockwise'];
-		const currentIndex = modes.indexOf(this.renderMode);
-		this.renderMode = modes[(currentIndex + 1) % modes.length];
-		btn.textContent = this.getModeIcon(this.renderMode);
-		btn.title = `切换渲染模式: ${RENDER_MODE_NAMES[this.renderMode]}`;
-		this.refresh();
+		// 设置当前选中的模式
+		modeSelect.value = this.renderMode;
+
+		// 监听模式切换
+		modeSelect.addEventListener('change', (e) => {
+			this.renderMode = (e.target as HTMLSelectElement).value as RenderMode;
+			this.refresh();
+		});
 	}
 
 	private styleButton(btn: HTMLButtonElement) {
@@ -489,6 +502,74 @@ class MindMapRenderer extends MarkdownRenderChild {
 		this.scale = 1;
 		if (this.mainGroup && this.svg) {
 			this.centerTree(this.mainGroup, this.svg);
+		}
+	}
+
+	private async copyAsPNG() {
+		if (!this.svg || !this.mainGroup) return;
+
+		try {
+			// 获取 SVG 的边界框
+			const bbox = this.mainGroup.getBBox();
+			const padding = 40; // 增加内边距
+			const scaleFactor = 2; // 2倍放大，提高清晰度
+			const width = (bbox.width + padding * 2) * scaleFactor;
+			const height = (bbox.height + padding * 2) * scaleFactor;
+
+			// 创建新的 SVG 元素用于导出
+			const svgClone = this.svg.cloneNode(true) as SVGSVGElement;
+			svgClone.setAttribute('width', width.toString());
+			svgClone.setAttribute('height', height.toString());
+			svgClone.setAttribute('viewBox', `${bbox.x - padding} ${bbox.y - padding} ${bbox.width + padding * 2} ${bbox.height + padding * 2}`);
+
+			// 将 SVG 转换为字符串
+			const svgString = new XMLSerializer().serializeToString(svgClone);
+			const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+			const svgUrl = URL.createObjectURL(svgBlob);
+
+			// 创建 Image 对象
+			const img = new Image();
+			img.onload = async () => {
+				// 创建 Canvas（使用高分辨率）
+				const canvas = document.createElement('canvas');
+				canvas.width = width;
+				canvas.height = height;
+				const ctx = canvas.getContext('2d', { alpha: false }); // 优化性能
+				if (!ctx) return;
+
+				// 绘制白色背景
+				ctx.fillStyle = 'white';
+				ctx.fillRect(0, 0, width, height);
+
+				// 绘制 SVG（使用高质量缩放）
+				ctx.imageSmoothingEnabled = true;
+				ctx.imageSmoothingQuality = 'high';
+				ctx.drawImage(img, 0, 0, width, height);
+
+				// 导出为 PNG（最高质量）
+				canvas.toBlob(async (blob) => {
+					if (!blob) return;
+
+					// 复制到剪贴板
+					try {
+						await navigator.clipboard.write([
+							new ClipboardItem({ 'image/png': blob })
+						]);
+						console.log('Copied as PNG');
+						new Notice('Mind map copied as PNG');
+					} catch (err) {
+						console.error('Failed to copy:', err);
+						new Notice('Failed to copy as PNG');
+					}
+
+					// 清理
+					URL.revokeObjectURL(svgUrl);
+				}, 'image/png', 1.0); // 质量参数设为 1.0（最高）
+			};
+
+			img.src = svgUrl;
+		} catch (err) {
+			console.error('Failed to copy as PNG:', err);
 		}
 	}
 
@@ -898,10 +979,10 @@ class MindMapRenderer extends MarkdownRenderChild {
 	}
 
 	// 大纲模式渲染（全部向右展开）
-	private renderLogic(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
+	private renderOutlineView(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
 		const lineColor = '#605CE5';
 		const startX = 50;
-		const totalHeight = this.calculateClockwiseTreeHeight(root);
+		const totalHeight = this.calculateRadialMindMapTreeHeight(root);
 		const startY = totalHeight / 2 + 50;
 
 		const textWidth = this.calculateTextWidth(root.text, 0);
@@ -936,12 +1017,12 @@ class MindMapRenderer extends MarkdownRenderChild {
 		// 全部子节点向右展开
 		if (!root.collapsed && root.children.length > 0) {
 			const parentRight = startX + totalNodeWidth;
-			this.renderLogicChildren(root.children, linesGroup, nodesGroup, parentRight, startY, 1);
+			this.renderOutlineViewChildren(root.children, linesGroup, nodesGroup, parentRight, startY, 1);
 		}
 	}
 
 	// 大纲模式子节点渲染（全部向右）
-	private renderLogicChildren(
+	private renderOutlineViewChildren(
 		children: MindMapNode[],
 		linesGroup: SVGGElement,
 		nodesGroup: SVGGElement,
@@ -953,7 +1034,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const horizontalGap = 30;
 		const verticalGap = 8;
 
-		const childHeights = children.map(child => this.calculateClockwiseTreeHeight(child));
+		const childHeights = children.map(child => this.calculateRadialMindMapTreeHeight(child));
 		const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
 
 		let currentY = parentY - totalChildrenHeight / 2;
@@ -1007,7 +1088,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			// 递归渲染子节点
 			if (!child.collapsed && child.children.length > 0) {
 				const childRight = nodeX + totalNodeWidth;
-				this.renderLogicChildren(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
+				this.renderOutlineViewChildren(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
 			}
 
 			currentY += childHeight + verticalGap;
@@ -1015,7 +1096,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 	}
 
 	// 中心辐射模式渲染（左右对称布局）
-	private renderClockwise(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
+	private renderRadialMindMap(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
 		const lineColor = '#605CE5';
 		const centerX = 400;
 		const centerY = 300;
@@ -1061,19 +1142,19 @@ class MindMapRenderer extends MarkdownRenderChild {
 			// 渲染右侧子节点
 			if (rightChildren.length > 0) {
 				const parentRight = rootX + totalNodeWidth;
-				this.renderClockwiseChildrenRight(rightChildren, linesGroup, nodesGroup, parentRight, centerY, 1);
+				this.renderRadialMindMapChildrenRight(rightChildren, linesGroup, nodesGroup, parentRight, centerY, 1);
 			}
 
 			// 渲染左侧子节点（镜像布局）
 			if (leftChildren.length > 0) {
 				const parentLeft = rootX;
-				this.renderClockwiseChildrenLeft(leftChildren, linesGroup, nodesGroup, parentLeft, centerY, 1);
+				this.renderRadialMindMapChildrenLeft(leftChildren, linesGroup, nodesGroup, parentLeft, centerY, 1);
 			}
 		}
 	}
 
 	// 右侧子节点渲染
-	private renderClockwiseChildrenRight(
+	private renderRadialMindMapChildrenRight(
 		children: MindMapNode[],
 		linesGroup: SVGGElement,
 		nodesGroup: SVGGElement,
@@ -1085,7 +1166,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const horizontalGap = 30;
 		const verticalGap = 8;
 
-		const childHeights = children.map(child => this.calculateClockwiseTreeHeight(child));
+		const childHeights = children.map(child => this.calculateRadialMindMapTreeHeight(child));
 		const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
 
 		let currentY = parentY - totalChildrenHeight / 2;
@@ -1139,7 +1220,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			// 递归渲染子节点
 			if (!child.collapsed && child.children.length > 0) {
 				const childRight = nodeX + totalNodeWidth;
-				this.renderClockwiseChildrenRight(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
+				this.renderRadialMindMapChildrenRight(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
 			}
 
 			currentY += childHeight + verticalGap;
@@ -1147,7 +1228,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 	}
 
 	// 左侧子节点渲染（镜像布局）
-	private renderClockwiseChildrenLeft(
+	private renderRadialMindMapChildrenLeft(
 		children: MindMapNode[],
 		linesGroup: SVGGElement,
 		nodesGroup: SVGGElement,
@@ -1159,7 +1240,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const horizontalGap = 30;
 		const verticalGap = 8;
 
-		const childHeights = children.map(child => this.calculateClockwiseTreeHeight(child));
+		const childHeights = children.map(child => this.calculateRadialMindMapTreeHeight(child));
 		const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
 
 		let currentY = parentY - totalChildrenHeight / 2;
@@ -1213,21 +1294,21 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 递归渲染子节点（继续向左展开）
 			if (!child.collapsed && child.children.length > 0) {
-				this.renderClockwiseChildrenLeft(child.children, linesGroup, nodesGroup, nodeX, childCenterY, depth + 1);
+				this.renderRadialMindMapChildrenLeft(child.children, linesGroup, nodesGroup, nodeX, childCenterY, depth + 1);
 			}
 
 			currentY += childHeight + verticalGap;
 		});
 	}
 
-	private calculateClockwiseTreeHeight(node: MindMapNode): number {
+	private calculateRadialMindMapTreeHeight(node: MindMapNode): number {
 		if (node.children.length === 0 || node.collapsed) {
 			return 28;
 		}
 		const verticalGap = 8;
 		let totalHeight = 0;
 		for (let i = 0; i < node.children.length; i++) {
-			totalHeight += this.calculateClockwiseTreeHeight(node.children[i]);
+			totalHeight += this.calculateRadialMindMapTreeHeight(node.children[i]);
 			if (i < node.children.length - 1) {
 				totalHeight += verticalGap;
 			}
