@@ -1756,9 +1756,9 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const circleY = childCenterY;
 			const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到圆圈中心）
+			// 绘制连接线（延伸到圆圈左边缘）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX - nodeRadius} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
 			path.setAttribute('stroke-width', strokeWidth);
@@ -2025,9 +2025,9 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const circleY = childCenterY;
 			const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到圆圈中心）
+			// 绘制连接线（延伸到圆圈左边缘）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX - nodeRadius} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
 			path.setAttribute('stroke-width', strokeWidth);
@@ -2153,9 +2153,9 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const circleY = childCenterY;
 			const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到圆圈中心）
+			// 绘制连接线（延伸到圆圈右边缘）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX + nodeRadius} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
 			path.setAttribute('stroke-width', strokeWidth);
