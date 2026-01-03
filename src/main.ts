@@ -1,4 +1,4 @@
-import { Plugin, MarkdownPostProcessorContext, MarkdownRenderChild, PluginSettingTab, App, Setting, MarkdownRenderer, Notice } from 'obsidian';
+import { Plugin, MarkdownPostProcessorContext, MarkdownRenderChild, PluginSettingTab, App, Setting, MarkdownRenderer, Notice, Modal } from 'obsidian';
 
 // 渲染模式枚举
 type RenderMode = 'logic' | 'clockwise';
@@ -7,6 +7,124 @@ const RENDER_MODE_NAMES: Record<RenderMode, string> = {
 	'logic': 'Outline View',
 	'clockwise': 'Radial Mind Map'
 };
+
+// 主题接口
+interface MindMapTheme {
+	name: string;
+	canvasBackgroundColor: string;
+	fontColor: string;
+	nodeBackgroundColor: string;
+	lineColor: string;
+	connectionColor: string;
+}
+
+// 预设主题
+const PRESET_THEMES: MindMapTheme[] = [
+	{
+		name: 'Default',
+		canvasBackgroundColor: '#ffffff',
+		fontColor: '#000000',
+		nodeBackgroundColor: '#ffffff',
+		lineColor: '#605CE5',
+		connectionColor: '#605CE5'
+	},
+	{
+		name: 'Dark',
+		canvasBackgroundColor: '#1e1e1e',
+		fontColor: '#e0e0e0',
+		nodeBackgroundColor: '#2d2d2d',
+		lineColor: '#7c7c7c',
+		connectionColor: '#7c7c7c'
+	},
+	{
+		name: 'Darcula',
+		canvasBackgroundColor: '#2b2b2b',
+		fontColor: '#a9b7c6',
+		nodeBackgroundColor: '#3c3f41',
+		lineColor: '#808080',
+		connectionColor: '#808080'
+	},
+	{
+		name: 'Dracula',
+		canvasBackgroundColor: '#282a36',
+		fontColor: '#f8f8f2',
+		nodeBackgroundColor: '#44475a',
+		lineColor: '#bd93f9',
+		connectionColor: '#bd93f9'
+	},
+	{
+		name: 'Monokai',
+		canvasBackgroundColor: '#272822',
+		fontColor: '#f8f8f2',
+		nodeBackgroundColor: '#3e3d32',
+		lineColor: '#a6e22e',
+		connectionColor: '#a6e22e'
+	},
+	{
+		name: 'Solarized Dark',
+		canvasBackgroundColor: '#002b36',
+		fontColor: '#839496',
+		nodeBackgroundColor: '#073642',
+		lineColor: '#2aa198',
+		connectionColor: '#2aa198'
+	},
+	{
+		name: 'Solarized Light',
+		canvasBackgroundColor: '#fdf6e3',
+		fontColor: '#657b83',
+		nodeBackgroundColor: '#eee8d5',
+		lineColor: '#2aa198',
+		connectionColor: '#2aa198'
+	},
+	{
+		name: 'Ocean',
+		canvasBackgroundColor: '#f0f8ff',
+		fontColor: '#2c3e50',
+		nodeBackgroundColor: '#e8f4f8',
+		lineColor: '#3498db',
+		connectionColor: '#3498db'
+	},
+	{
+		name: 'Forest',
+		canvasBackgroundColor: '#f0fff4',
+		fontColor: '#1b4332',
+		nodeBackgroundColor: '#e8f5e9',
+		lineColor: '#2e7d32',
+		connectionColor: '#2e7d32'
+	},
+	{
+		name: 'Sunset',
+		canvasBackgroundColor: '#fff5f0',
+		fontColor: '#4a2c2a',
+		nodeBackgroundColor: '#ffe8d6',
+		lineColor: '#e76f51',
+		connectionColor: '#e76f51'
+	},
+	{
+		name: 'Lavender',
+		canvasBackgroundColor: '#f3e5f5',
+		fontColor: '#4a148c',
+		nodeBackgroundColor: '#e1bee7',
+		lineColor: '#9c27b0',
+		connectionColor: '#9c27b0'
+	},
+	{
+		name: 'Mint',
+		canvasBackgroundColor: '#e0f2f1',
+		fontColor: '#004d40',
+		nodeBackgroundColor: '#b2dfdb',
+		lineColor: '#009688',
+		connectionColor: '#009688'
+	},
+	{
+		name: 'Rose',
+		canvasBackgroundColor: '#fff0f5',
+		fontColor: '#880e4f',
+		nodeBackgroundColor: '#f8bbd9',
+		lineColor: '#e91e63',
+		connectionColor: '#e91e63'
+	}
+];
 
 interface MindMapNode {
 	id: string;
@@ -20,12 +138,26 @@ interface MindMapSettings {
 	enableWheelZoom: boolean;
 	defaultRenderMode: RenderMode;
 	notePanelWidth: number;
+	currentTheme: string;
+	customThemes: MindMapTheme[];
+	canvasBackgroundColor: string;
+	fontColor: string;
+	nodeBackgroundColor: string;
+	lineColor: string;
+	connectionColor: string;
 }
 
 const DEFAULT_SETTINGS: MindMapSettings = {
 	enableWheelZoom: false,
 	defaultRenderMode: 'clockwise',
-	notePanelWidth: 300
+	notePanelWidth: 300,
+	currentTheme: 'Default',
+	customThemes: [],
+	canvasBackgroundColor: '#ffffff',
+	fontColor: '#000000',
+	nodeBackgroundColor: '#ffffff',
+	lineColor: '#605CE5',
+	connectionColor: '#605CE5'
 };
 
 // 用于保存节点折叠状态的映射
@@ -38,7 +170,7 @@ export default class MindMapPlugin extends Plugin {
 		await this.loadSettings();
 
 		this.registerMarkdownCodeBlockProcessor('mindmap', (source, el, ctx) => {
-			const mindMap = new MindMapRenderer(source, el, ctx, this.settings, this.app);
+			const mindMap = new MindMapRenderer(source, el, ctx, this.settings, this.app, this);
 			ctx.addChild(mindMap);
 		});
 
@@ -73,7 +205,163 @@ class MindMapSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Mind Map Settings' });
+		containerEl.createEl('h2', { text: 'Mindmark Settings' });
+
+		// 主题选择
+		containerEl.createEl('h3', { text: 'Theme' });
+
+		// 构建主题选项
+		const themeOptions: Record<string, string> = {};
+		PRESET_THEMES.forEach(theme => {
+			themeOptions[theme.name] = theme.name;
+		});
+		this.plugin.settings.customThemes.forEach(theme => {
+			themeOptions[theme.name] = theme.name;
+		});
+		// 添加 Custom 选项
+		themeOptions['Custom'] = 'Custom';
+
+		// 判断是否为自定义主题
+		const isCustom = this.plugin.settings.currentTheme === 'Custom';
+
+		new Setting(containerEl)
+			.setName('Theme')
+			.setDesc('Choose a theme for your mind map.')
+			.addDropdown(dropdown => dropdown
+				.addOptions(themeOptions)
+				.setValue(this.plugin.settings.currentTheme)
+				.onChange(async (value) => {
+					this.plugin.settings.currentTheme = value;
+					await this.applyTheme(value);
+					await this.plugin.saveSettings();
+					this.display(); // 重新渲染设置页面
+				}));
+
+		// 自定义主题管理（仅在自定义模式下显示）
+		if (isCustom) {
+			new Setting(containerEl)
+				.setName('Save current settings as custom theme')
+				.setDesc('Save the current color settings as a new custom theme.')
+				.addButton(button => button
+					.setButtonText('Save')
+					.onClick(async () => {
+						const themeName = await this.promptForThemeName();
+						if (themeName) {
+							const newTheme: MindMapTheme = {
+								name: themeName,
+								canvasBackgroundColor: this.plugin.settings.canvasBackgroundColor,
+								fontColor: this.plugin.settings.fontColor,
+								nodeBackgroundColor: this.plugin.settings.nodeBackgroundColor,
+								lineColor: this.plugin.settings.lineColor,
+								connectionColor: this.plugin.settings.connectionColor
+							};
+							this.plugin.settings.customThemes.push(newTheme);
+							this.plugin.settings.currentTheme = themeName;
+							await this.plugin.saveSettings();
+							this.display(); // 重新渲染设置页面
+						}
+					}));
+
+			// 删除自定义主题
+			if (this.plugin.settings.customThemes.length > 0) {
+				new Setting(containerEl)
+					.setName('Delete custom theme')
+					.setDesc('Remove a custom theme.')
+					.addDropdown(dropdown => {
+						const customThemeOptions: Record<string, string> = {};
+						this.plugin.settings.customThemes.forEach(theme => {
+							customThemeOptions[theme.name] = theme.name;
+						});
+						dropdown.addOptions(customThemeOptions);
+						dropdown.onChange(async (value) => {
+							// 不在这里删除，只是选择
+						});
+					})
+					.addButton(button => button
+						.setButtonText('Delete')
+						.setWarning()
+						.onClick(async () => {
+							const dropdown = button.buttonEl.previousElementSibling as HTMLSelectElement;
+							const themeName = dropdown.value;
+							if (themeName) {
+								this.plugin.settings.customThemes = this.plugin.settings.customThemes.filter(
+									t => t.name !== themeName
+								);
+								if (this.plugin.settings.currentTheme === themeName) {
+									this.plugin.settings.currentTheme = 'Default';
+									await this.applyTheme('Default');
+								}
+								await this.plugin.saveSettings();
+								this.display(); // 重新渲染设置页面
+							}
+						}));
+			}
+
+			// 颜色设置（仅在自定义模式下显示）
+			containerEl.createEl('h3', { text: 'Color Settings' });
+
+			new Setting(containerEl)
+				.setName('Canvas background color')
+				.setDesc('Background color of the mind map canvas.')
+				.addColorPicker(colorPicker => colorPicker
+					.setValue(this.plugin.settings.canvasBackgroundColor)
+					.onChange(async (value) => {
+						this.plugin.settings.canvasBackgroundColor = value;
+						this.plugin.settings.currentTheme = 'Custom';
+						await this.plugin.saveSettings();
+						MindMapRenderer.updateAllColors();
+					}));
+
+			new Setting(containerEl)
+				.setName('Font color')
+				.setDesc('Color of the text in mind map nodes.')
+				.addColorPicker(colorPicker => colorPicker
+					.setValue(this.plugin.settings.fontColor)
+					.onChange(async (value) => {
+						this.plugin.settings.fontColor = value;
+						this.plugin.settings.currentTheme = 'Custom';
+						await this.plugin.saveSettings();
+						MindMapRenderer.updateAllColors();
+					}));
+
+			new Setting(containerEl)
+				.setName('Node background color')
+				.setDesc('Background color of mind map nodes.')
+				.addColorPicker(colorPicker => colorPicker
+					.setValue(this.plugin.settings.nodeBackgroundColor)
+					.onChange(async (value) => {
+						this.plugin.settings.nodeBackgroundColor = value;
+						this.plugin.settings.currentTheme = 'Custom';
+						await this.plugin.saveSettings();
+						MindMapRenderer.updateAllColors();
+					}));
+
+			new Setting(containerEl)
+				.setName('Line color')
+				.setDesc('Color of the node borders and outlines.')
+				.addColorPicker(colorPicker => colorPicker
+					.setValue(this.plugin.settings.lineColor)
+					.onChange(async (value) => {
+						this.plugin.settings.lineColor = value;
+						this.plugin.settings.currentTheme = 'Custom';
+						await this.plugin.saveSettings();
+						MindMapRenderer.updateAllColors();
+					}));
+
+			new Setting(containerEl)
+				.setName('Connection color')
+				.setDesc('Color of the connection lines between nodes.')
+				.addColorPicker(colorPicker => colorPicker
+					.setValue(this.plugin.settings.connectionColor)
+					.onChange(async (value) => {
+						this.plugin.settings.connectionColor = value;
+						this.plugin.settings.currentTheme = 'Custom';
+						await this.plugin.saveSettings();
+						MindMapRenderer.updateAllColors();
+					}));
+		}
+
+		containerEl.createEl('h3', { text: 'General Settings' });
 
 		new Setting(containerEl)
 			.setName('Default render mode')
@@ -112,6 +400,100 @@ class MindMapSettingTab extends PluginSettingTab {
 					}
 				}));
 	}
+
+	private async applyTheme(themeName: string): Promise<void> {
+		// 如果选择 Custom，不覆盖当前颜色设置
+		if (themeName === 'Custom') {
+			MindMapRenderer.updateAllColors();
+			return;
+		}
+
+		const presetTheme = PRESET_THEMES.find(t => t.name === themeName);
+		const customTheme = this.plugin.settings.customThemes.find(t => t.name === themeName);
+		const theme = presetTheme || customTheme;
+
+		if (theme) {
+			this.plugin.settings.canvasBackgroundColor = theme.canvasBackgroundColor;
+			this.plugin.settings.fontColor = theme.fontColor;
+			this.plugin.settings.nodeBackgroundColor = theme.nodeBackgroundColor;
+			this.plugin.settings.lineColor = theme.lineColor;
+			this.plugin.settings.connectionColor = theme.connectionColor;
+			MindMapRenderer.updateAllColors();
+		}
+	}
+
+	private async promptForThemeName(): Promise<string | null> {
+		const modal = new ThemeNameModal(this.app);
+		return new Promise((resolve) => {
+			modal.open();
+			modal.onClose = () => {
+				resolve(modal.themeName);
+			};
+		});
+	}
+}
+
+// 主题名称输入模态框
+class ThemeNameModal extends Modal {
+	themeName: string | null = null;
+
+	constructor(app: App) {
+		super(app);
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl('h2', { text: 'Save Custom Theme' });
+
+		const input = contentEl.createEl('input', {
+			type: 'text',
+			placeholder: 'Enter theme name...'
+		});
+		input.style.width = '100%';
+		input.style.padding = '8px';
+		input.style.marginBottom = '16px';
+
+		const buttonContainer = contentEl.createDiv();
+		buttonContainer.style.display = 'flex';
+		buttonContainer.style.gap = '8px';
+
+		const saveBtn = buttonContainer.createEl('button', { text: 'Save' });
+		saveBtn.style.padding = '8px 16px';
+		saveBtn.style.cursor = 'pointer';
+
+		const cancelBtn = buttonContainer.createEl('button', { text: 'Cancel' });
+		cancelBtn.style.padding = '8px 16px';
+		cancelBtn.style.cursor = 'pointer';
+
+		saveBtn.addEventListener('click', () => {
+			const name = input.value.trim();
+			if (name) {
+				this.themeName = name;
+				this.close();
+			} else {
+				new Notice('Please enter a theme name');
+			}
+		});
+
+		cancelBtn.addEventListener('click', () => {
+			this.themeName = null;
+			this.close();
+		});
+
+		input.focus();
+		input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				saveBtn.click();
+			} else if (e.key === 'Escape') {
+				cancelBtn.click();
+			}
+		});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
+	}
 }
 
 class MindMapRenderer extends MarkdownRenderChild {
@@ -122,9 +504,12 @@ class MindMapRenderer extends MarkdownRenderChild {
 	private root: MindMapNode | null = null;
 	private settings: MindMapSettings;
 	private app: App;
+	private plugin?: MindMapPlugin;
 	private wrapper: HTMLElement | null = null;
 	private notePanel: HTMLElement | null = null; // 右侧备注面板
 	private renderMode: RenderMode;
+	private isFullscreen: boolean = false;
+	private fullscreenBtn: HTMLButtonElement | null = null;
 
 	// Zoom and pan state
 	private scale: number = 1;
@@ -135,13 +520,20 @@ class MindMapRenderer extends MarkdownRenderChild {
 	private dragStartY: number = 0;
 	private svg: SVGSVGElement | null = null;
 	private mainGroup: SVGGElement | null = null;
+	private zoomLevelSelect: HTMLSelectElement | null = null; // 缩放比例下拉框
 
-	constructor(source: string, container: HTMLElement, ctx: MarkdownPostProcessorContext, settings: MindMapSettings, app: App) {
+	// 保存非全屏状态的缩放和平移
+	private savedScale: number = 1;
+	private savedTranslateX: number = 0;
+	private savedTranslateY: number = 0;
+
+	constructor(source: string, container: HTMLElement, ctx: MarkdownPostProcessorContext, settings: MindMapSettings, app: App, plugin?: MindMapPlugin) {
 		super(container);
 		this.source = source;
 		this.container = container;
 		this.settings = settings;
 		this.app = app;
+		this.plugin = plugin;
 		this.renderMode = settings.defaultRenderMode;
 		
 		// 添加到实例列表
@@ -348,7 +740,10 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const wrapper = this.container.createDiv();
 		wrapper.style.position = 'relative';
 		wrapper.style.width = '100%';
+		wrapper.style.maxWidth = '100%';
 		wrapper.style.height = '600px';
+		wrapper.style.overflow = 'hidden';
+		wrapper.style.background = this.settings.canvasBackgroundColor;
 		wrapper.style.transition = 'all 0.3s ease';
 		this.wrapper = wrapper;
 
@@ -364,7 +759,8 @@ class MindMapRenderer extends MarkdownRenderChild {
 			border-left: 1px solid #e6ddb3;
 			box-shadow: -2px 0 12px rgba(0,0,0,0.08);
 			transform: translateX(100%);
-			transition: transform 0.3s ease;
+			visibility: hidden;
+			transition: transform 0.3s ease, visibility 0.3s ease;
 			z-index: 1000;
 			overflow: auto;
 			padding: 16px;
@@ -412,6 +808,55 @@ class MindMapRenderer extends MarkdownRenderChild {
 				this.hideNotePanel();
 			}
 		});
+
+		// 监听全屏变化事件
+		const handleFullscreenChange = () => {
+			const isFullscreen = document.fullscreenElement === this.wrapper ||
+				(document as any).webkitFullscreenElement === this.wrapper ||
+				(document as any).msFullscreenElement === this.wrapper;
+			
+			// 如果全屏状态改变
+			if (this.isFullscreen !== isFullscreen) {
+				this.isFullscreen = isFullscreen;
+				
+				// 更新高度和背景色
+				if (this.wrapper) {
+					this.wrapper.style.height = isFullscreen ? '100vh' : '600px';
+					this.wrapper.style.background = this.settings.canvasBackgroundColor;
+				}
+				
+				// 退出全屏时恢复缩放和平移，并隐藏备注面板
+				if (!isFullscreen) {
+					this.scale = this.savedScale;
+					this.translateX = this.savedTranslateX;
+					this.translateY = this.savedTranslateY;
+					this.applyTransform();
+					this.hideNotePanel();
+				}
+				
+				// 更新按钮图标
+				if (this.fullscreenBtn) {
+					this.fullscreenBtn.textContent = this.isFullscreen ? '⛶' : '⛶';
+					this.fullscreenBtn.title = this.isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen';
+				}
+				
+				// 全屏时自动调整缩放比例（自适应）
+				if (isFullscreen && this.mainGroup && this.svg) {
+					this.centerTree(this.mainGroup, this.svg);
+				}
+			}
+		};
+
+		document.addEventListener('fullscreenchange', handleFullscreenChange);
+		document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+		document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+		// 清理函数
+		this.register(() => {
+			document.removeEventListener('fullscreenchange', handleFullscreenChange);
+			document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+			document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+		});
 	}
 
 	private createControls(wrapper: HTMLElement) {
@@ -441,6 +886,48 @@ class MindMapRenderer extends MarkdownRenderChild {
 		this.styleButton(zoomOutBtn);
 		zoomOutBtn.addEventListener('click', () => this.zoom(0.8));
 
+		// Zoom level select dropdown
+		const zoomLevelSelect = controls.createEl('select');
+		zoomLevelSelect.style.cssText = `
+			padding: 4px 8px;
+			border: 1px solid #ddd;
+			border-radius: 4px;
+			background: white;
+			cursor: pointer;
+			font-size: 12px;
+			line-height: 1;
+			min-width: 70px;
+		`;
+
+		// 添加常用缩放比例选项
+		const zoomLevels = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
+		zoomLevels.forEach(level => {
+			const option = zoomLevelSelect.createEl('option');
+			option.value = level.toString();
+			option.textContent = `${Math.round(level * 100)}%`;
+		});
+
+		// 添加自定义选项
+		const customOption = zoomLevelSelect.createEl('option');
+		customOption.value = 'custom';
+		customOption.textContent = 'Custom';
+		customOption.disabled = true;
+
+		// 设置当前缩放级别
+		this.updateZoomLevelSelect(zoomLevelSelect, this.scale);
+
+		// 监听缩放级别选择
+		zoomLevelSelect.addEventListener('change', (e) => {
+			const selectedLevel = parseFloat((e.target as HTMLSelectElement).value);
+			if (!isNaN(selectedLevel)) {
+				this.scale = selectedLevel;
+				this.applyTransform();
+				this.updateZoomLevelSelect(zoomLevelSelect, this.scale);
+			}
+		});
+
+		this.zoomLevelSelect = zoomLevelSelect;
+
 		// Reset zoom button
 		const resetBtn = controls.createEl('button');
 		resetBtn.textContent = '⟲';
@@ -457,6 +944,14 @@ class MindMapRenderer extends MarkdownRenderChild {
 		this.styleButton(copyBtn);
 		copyBtn.title = 'Copy as PNG';
 		copyBtn.addEventListener('click', () => this.copyAsPNG());
+
+		// Fullscreen button
+		const fullscreenBtn = controls.createEl('button');
+		fullscreenBtn.textContent = '⛶';
+		this.styleButton(fullscreenBtn);
+		fullscreenBtn.title = 'Toggle fullscreen';
+		fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+		this.fullscreenBtn = fullscreenBtn;
 
 		// Separator
 		const separator = controls.createSpan();
@@ -508,6 +1003,27 @@ class MindMapRenderer extends MarkdownRenderChild {
 		`;
 		btn.addEventListener('mouseenter', () => btn.style.background = '#f0f0f0');
 		btn.addEventListener('mouseleave', () => btn.style.background = 'white');
+	}
+
+	private updateZoomLevelSelect(select: HTMLSelectElement, scale: number) {
+		const zoomLevels = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
+		
+		// 检查当前缩放值是否匹配预设值
+		const matchedLevel = zoomLevels.find(level => Math.abs(level - scale) < 0.01);
+		
+		if (matchedLevel !== undefined) {
+			// 匹配预设值，选中对应选项
+			select.value = matchedLevel.toString();
+		} else {
+			// 不匹配预设值，显示自定义值
+			select.value = 'custom';
+			// 更新自定义选项的文本
+			const customOption = select.querySelector('option[value="custom"]');
+			if (customOption) {
+				customOption.textContent = `${Math.round(scale * 100)}%`;
+				customOption.disabled = false;
+			}
+		}
 	}
 
 	private setupZoomAndPan(svg: SVGSVGElement) {
@@ -564,12 +1080,22 @@ class MindMapRenderer extends MarkdownRenderChild {
 		
 		this.scale = newScale;
 		this.applyTransform();
+		
+		// 更新缩放百分比选择框
+		if (this.zoomLevelSelect) {
+			this.updateZoomLevelSelect(this.zoomLevelSelect, this.scale);
+		}
 	}
 
 	private resetZoom() {
 		this.scale = 1;
 		if (this.mainGroup && this.svg) {
 			this.centerTree(this.mainGroup, this.svg);
+		}
+		
+		// 更新缩放百分比选择框
+		if (this.zoomLevelSelect) {
+			this.updateZoomLevelSelect(this.zoomLevelSelect, this.scale);
 		}
 	}
 
@@ -651,6 +1177,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 	private hideNotePanel() {
 		if (this.notePanel) {
 			this.notePanel.style.transform = 'translateX(100%)';
+			this.notePanel.style.visibility = 'hidden';
 		}
 	}
 
@@ -660,10 +1187,77 @@ class MindMapRenderer extends MarkdownRenderChild {
 		}
 	}
 
+	private updateCanvasColor() {
+		if (this.wrapper) {
+			this.wrapper.style.background = this.settings.canvasBackgroundColor;
+		}
+	}
+
+	private toggleFullscreen() {
+		if (!this.wrapper) return;
+
+		this.isFullscreen = !this.isFullscreen;
+
+		if (this.isFullscreen) {
+			// 进入全屏：保存当前状态
+			this.savedScale = this.scale;
+			this.savedTranslateX = this.translateX;
+			this.savedTranslateY = this.translateY;
+			
+			// 设置全屏样式
+			this.wrapper.style.height = '100vh';
+			this.wrapper.style.background = this.settings.canvasBackgroundColor;
+			
+			if (this.wrapper.requestFullscreen) {
+				this.wrapper.requestFullscreen();
+			} else if (this.wrapper.webkitRequestFullscreen) {
+				this.wrapper.webkitRequestFullscreen();
+			} else if (this.wrapper.msRequestFullscreen) {
+				this.wrapper.msRequestFullscreen();
+			}
+		} else {
+			// 退出全屏：恢复之前的状态
+			this.wrapper.style.height = '600px';
+			this.wrapper.style.background = this.settings.canvasBackgroundColor;
+			
+			// 恢复缩放和平移
+			this.scale = this.savedScale;
+			this.translateX = this.savedTranslateX;
+			this.translateY = this.savedTranslateY;
+			this.applyTransform();
+			
+			if (document.exitFullscreen) {
+				document.exitFullscreen();
+			} else if ((document as any).webkitExitFullscreen) {
+				(document as any).webkitExitFullscreen();
+			} else if ((document as any).msExitFullscreen) {
+				(document as any).msExitFullscreen();
+			}
+		}
+
+		// 更新按钮图标
+		if (this.fullscreenBtn) {
+			this.fullscreenBtn.textContent = this.isFullscreen ? '⛶' : '⛶';
+			this.fullscreenBtn.title = this.isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen';
+		}
+		
+		// 全屏时自动调整缩放比例（自适应）
+		if (this.isFullscreen && this.mainGroup && this.svg) {
+			this.centerTree(this.mainGroup, this.svg);
+		}
+	}
+
 	static updateAllNotePanelWidth(width: number) {
 		MindMapRenderer.instances.forEach(renderer => {
 			renderer.settings.notePanelWidth = width;
 			renderer.updateNotePanelWidth();
+		});
+	}
+
+	static updateAllColors() {
+		MindMapRenderer.instances.forEach(renderer => {
+			renderer.updateCanvasColor();
+			renderer.refresh();
 		});
 	}
 
@@ -708,7 +1302,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		
 		// 连线粗细根据层级变化
 		const strokeWidth = Math.max(1.2, 2.2 - depth * 0.3);
-		const lineColor = '#605CE5';
+		const lineColor = this.settings.connectionColor;
 
 		// 每个节点都有一条横线（文字在横线上方）
 		const horizontalLine = linesGroup.createSvg('line');
@@ -786,7 +1380,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const nodeRadius = 6;
 		const fontSize = Math.max(11, 13 - depth * 0.5);
 		const fontWeight = depth === 0 ? '600' : 'normal';
-		const textColor = '#000000';
+		const textColor = this.settings.fontColor;
 
 		// 文字背景（白色矩形遮挡连线）
 		const textBg = nodeGroup.createSvg('rect');
@@ -796,7 +1390,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		textBg.setAttribute('y', (textY - fontSize + 2).toString());
 		textBg.setAttribute('width', textWidth.toString());
 		textBg.setAttribute('height', (fontSize + 4).toString());
-		textBg.setAttribute('fill', 'white');
+		textBg.setAttribute('fill', this.settings.nodeBackgroundColor);
 
 		// 节点文本（在横线正上方）
 		const text = nodeGroup.createSvg('text');
@@ -867,6 +1461,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 				// 显示面板
 				this.notePanel.style.transform = 'translateX(0)';
+				this.notePanel.style.visibility = 'visible';
 			};
 
 			noteIcon.addEventListener('click', showNote);
@@ -881,14 +1476,14 @@ class MindMapRenderer extends MarkdownRenderChild {
 			circleBg.setAttribute('cx', circleX.toString());
 			circleBg.setAttribute('cy', y.toString());
 			circleBg.setAttribute('r', (nodeRadius + 1).toString());
-			circleBg.setAttribute('fill', 'white');
+			circleBg.setAttribute('fill', this.settings.nodeBackgroundColor);
 
 			// 空心圆
 			const circle = nodeGroup.createSvg('circle');
 			circle.setAttribute('cx', circleX.toString());
 			circle.setAttribute('cy', y.toString());
 			circle.setAttribute('r', nodeRadius.toString());
-			circle.setAttribute('fill', 'white');
+			circle.setAttribute('fill', this.settings.nodeBackgroundColor);
 			circle.setAttribute('stroke', textColor);
 			circle.setAttribute('stroke-width', '1.5');
 			circle.style.cursor = 'pointer';
@@ -1000,6 +1595,11 @@ class MindMapRenderer extends MarkdownRenderChild {
 		this.translateY = (svgHeight - bbox.height * this.scale) / 2 - bbox.y * this.scale;
 
 		this.applyTransform();
+		
+		// 更新缩放百分比选择框
+		if (this.zoomLevelSelect) {
+			this.updateZoomLevelSelect(this.zoomLevelSelect, this.scale);
+		}
 	}
 
 	private refresh() {
@@ -1020,7 +1620,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 	// 大纲模式渲染（全部向右展开）
 	private renderOutlineView(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
-		const lineColor = '#605CE5';
+		const lineColor = this.settings.lineColor;
 		const startX = 50;
 		const totalHeight = this.calculateRadialMindMapTreeHeight(root);
 		const startY = totalHeight / 2 + 50;
@@ -1070,7 +1670,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		parentY: number,
 		depth: number
 	) {
-		const lineColor = '#605CE5';
+		const lineColor = this.settings.lineColor;
 		const horizontalGap = 30;
 		const verticalGap = 8;
 
@@ -1107,7 +1707,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			bgRect.setAttribute('width', totalNodeWidth.toString());
 			bgRect.setAttribute('height', nodeHeight.toString());
 			bgRect.setAttribute('rx', '3');
-			bgRect.setAttribute('fill', 'white');
+			bgRect.setAttribute('fill', this.settings.nodeBackgroundColor);
 			bgRect.setAttribute('stroke', lineColor);
 			bgRect.setAttribute('stroke-width', '1');
 
@@ -1115,7 +1715,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const text = nodesGroup.createSvg('text');
 			text.setAttribute('x', (nodeX + textWidth / 2).toString());
 			text.setAttribute('y', (childCenterY + fontSize / 3).toString());
-			text.setAttribute('fill', '#000000');
+			text.setAttribute('fill', this.settings.fontColor);
 			text.setAttribute('font-size', fontSize.toString());
 			text.setAttribute('text-anchor', 'middle');
 			text.textContent = child.text;
@@ -1137,7 +1737,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 	// 中心辐射模式渲染（左右对称布局）
 	private renderRadialMindMap(root: MindMapNode, linesGroup: SVGGElement, nodesGroup: SVGGElement) {
-		const lineColor = '#605CE5';
+		const lineColor = this.settings.lineColor;
 		const centerX = 400;
 		const centerY = 300;
 
@@ -1202,7 +1802,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		parentY: number,
 		depth: number
 	) {
-		const lineColor = '#605CE5';
+		const lineColor = this.settings.lineColor;
 		const horizontalGap = 30;
 		const verticalGap = 8;
 
@@ -1239,7 +1839,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			bgRect.setAttribute('width', totalNodeWidth.toString());
 			bgRect.setAttribute('height', nodeHeight.toString());
 			bgRect.setAttribute('rx', '3');
-			bgRect.setAttribute('fill', 'white');
+			bgRect.setAttribute('fill', this.settings.nodeBackgroundColor);
 			bgRect.setAttribute('stroke', lineColor);
 			bgRect.setAttribute('stroke-width', '1');
 
@@ -1247,7 +1847,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const text = nodesGroup.createSvg('text');
 			text.setAttribute('x', (nodeX + textWidth / 2).toString());
 			text.setAttribute('y', (childCenterY + fontSize / 3).toString());
-			text.setAttribute('fill', '#000000');
+			text.setAttribute('fill', this.settings.fontColor);
 			text.setAttribute('font-size', fontSize.toString());
 			text.setAttribute('text-anchor', 'middle');
 			text.textContent = child.text;
@@ -1276,7 +1876,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		parentY: number,
 		depth: number
 	) {
-		const lineColor = '#605CE5';
+		const lineColor = this.settings.lineColor;
 		const horizontalGap = 30;
 		const verticalGap = 8;
 
@@ -1314,7 +1914,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			bgRect.setAttribute('width', totalNodeWidth.toString());
 			bgRect.setAttribute('height', nodeHeight.toString());
 			bgRect.setAttribute('rx', '3');
-			bgRect.setAttribute('fill', 'white');
+			bgRect.setAttribute('fill', this.settings.nodeBackgroundColor);
 			bgRect.setAttribute('stroke', lineColor);
 			bgRect.setAttribute('stroke-width', '1');
 
@@ -1322,7 +1922,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const text = nodesGroup.createSvg('text');
 			text.setAttribute('x', (nodeX + textWidth / 2).toString());
 			text.setAttribute('y', (childCenterY + fontSize / 3).toString());
-			text.setAttribute('fill', '#000000');
+			text.setAttribute('fill', this.settings.fontColor);
 			text.setAttribute('font-size', fontSize.toString());
 			text.setAttribute('text-anchor', 'middle');
 			text.textContent = child.text;
@@ -1403,6 +2003,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 显示面板
 			this.notePanel.style.transform = 'translateX(0)';
+			this.notePanel.style.visibility = 'visible';
 		};
 
 		noteIcon.addEventListener('click', showNote);
