@@ -1664,7 +1664,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		// Root 节点的圆圈和展开/收缩功能
 		if (root.children.length > 0) {
 			const nodeRadius = 6;
-			const circleX = startX + totalNodeWidth + 8;
+			const circleX = startX + totalNodeWidth + nodeRadius + 2; // 在节点框右侧，留 2px 间隙
 			const circleY = startY;
 
 			// 空心圆背景
@@ -1712,7 +1712,9 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 		// 全部子节点向右展开
 		if (!root.collapsed && root.children.length > 0) {
-			const parentRight = startX + totalNodeWidth + 20; // 考虑圆圈的宽度
+			const nodeRadius = 6;
+			const circleX = startX + totalNodeWidth + nodeRadius + 2;
+			const parentRight = circleX + nodeRadius + 30; // 从圆圈右侧开始，留 30px 间距
 			this.renderOutlineViewChildren(root.children, linesGroup, nodesGroup, parentRight, startY, 1);
 		}
 	}
@@ -1749,12 +1751,17 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const nodeX = parentRight + horizontalGap;
 			const nodeRadius = 6;
 
-			// 绘制连接线
+			// 计算圆圈位置（在节点框右侧，留 2px 间隙）
+			const circleX = nodeX + totalNodeWidth + nodeRadius + 2;
+			const circleY = childCenterY;
+			const strokeWidth = 1.5; // 与连线粗细一致
+
+			// 绘制连接线（延伸到圆圈中心）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeX} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
-			path.setAttribute('stroke-width', '1.5');
+			path.setAttribute('stroke-width', strokeWidth);
 			path.setAttribute('fill', 'none');
 
 			// 节点背景
@@ -1784,10 +1791,6 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 空心圆和展开/收缩功能
 			if (child.children.length > 0) {
-				const circleX = nodeX + totalNodeWidth + 4; // 调整位置确保与连线连接
-				const circleY = childCenterY;
-				const strokeWidth = 1.5; // 与连线粗细一致
-
 				// 空心圆背景（遮挡连接线）
 				const circleBg = nodesGroup.createSvg('circle');
 				circleBg.setAttribute('cx', circleX.toString());
@@ -1836,7 +1839,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 递归渲染子节点
 			if (!child.collapsed && child.children.length > 0) {
-				const childRight = nodeX + totalNodeWidth + 16; // 考虑空心圆的宽度
+				const childRight = circleX + nodeRadius + horizontalGap; // 从圆圈右侧开始
 				this.renderOutlineViewChildren(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
 			}
 
@@ -1884,8 +1887,8 @@ class MindMapRenderer extends MarkdownRenderChild {
 		if (root.children.length > 0) {
 			const nodeRadius = 6;
 			
-			// 右侧圆圈
-			const rightCircleX = rootX + totalNodeWidth + 8;
+			// 右侧圆圈（在节点框右侧，留 2px 间隙）
+			const rightCircleX = rootX + totalNodeWidth + nodeRadius + 2;
 			const rightCircleY = centerY;
 
 			const rightCircleBg = nodesGroup.createSvg('circle');
@@ -1913,8 +1916,8 @@ class MindMapRenderer extends MarkdownRenderChild {
 			rightIndicatorText.textContent = root.collapsed ? '+' : '-';
 			rightIndicatorText.style.cursor = 'pointer';
 
-			// 左侧圆圈
-			const leftCircleX = rootX - 8;
+			// 左侧圆圈（在节点框左侧，留 2px 间隙）
+			const leftCircleX = rootX - nodeRadius - 2;
 			const leftCircleY = centerY;
 
 			const leftCircleBg = nodesGroup.createSvg('circle');
@@ -1969,13 +1972,17 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 渲染右侧子节点
 			if (rightChildren.length > 0) {
-				const parentRight = rootX + totalNodeWidth + 20; // 考虑圆圈的宽度
+				const nodeRadius = 6;
+				const rightCircleX = rootX + totalNodeWidth + nodeRadius + 2;
+				const parentRight = rightCircleX + nodeRadius + 30; // 从圆圈右侧开始，留 30px 间距
 				this.renderRadialMindMapChildrenRight(rightChildren, linesGroup, nodesGroup, parentRight, centerY, 1);
 			}
 
 			// 渲染左侧子节点（镜像布局）
 			if (leftChildren.length > 0) {
-				const parentLeft = rootX - 20; // 考虑圆圈的宽度
+				const nodeRadius = 6;
+				const leftCircleX = rootX - nodeRadius - 2;
+				const parentLeft = leftCircleX - nodeRadius - 30; // 从圆圈左侧开始，留 30px 间距
 				this.renderRadialMindMapChildrenLeft(leftChildren, linesGroup, nodesGroup, parentLeft, centerY, 1);
 			}
 		}
@@ -2013,12 +2020,17 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const nodeX = parentRight + horizontalGap;
 			const nodeRadius = 6;
 
-			// 绘制连接线
+			// 计算圆圈位置（在节点框右侧，留 2px 间隙）
+			const circleX = nodeX + totalNodeWidth + nodeRadius + 2;
+			const circleY = childCenterY;
+			const strokeWidth = 1.5; // 与连线粗细一致
+
+			// 绘制连接线（延伸到圆圈中心）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeX} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
-			path.setAttribute('stroke-width', '1.5');
+			path.setAttribute('stroke-width', strokeWidth);
 			path.setAttribute('fill', 'none');
 
 			// 节点背景
@@ -2048,10 +2060,6 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 空心圆和展开/收缩功能
 			if (child.children.length > 0) {
-				const circleX = nodeX + totalNodeWidth + 4; // 调整位置确保与连线连接
-				const circleY = childCenterY;
-				const strokeWidth = 1.5; // 与连线粗细一致
-
 				// 空心圆背景（遮挡连接线）
 				const circleBg = nodesGroup.createSvg('circle');
 				circleBg.setAttribute('cx', circleX.toString());
@@ -2100,7 +2108,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 递归渲染子节点
 			if (!child.collapsed && child.children.length > 0) {
-				const childRight = nodeX + totalNodeWidth + 16; // 考虑空心圆的宽度
+				const childRight = circleX + nodeRadius + horizontalGap; // 从圆圈右侧开始
 				this.renderRadialMindMapChildrenRight(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
 			}
 
@@ -2140,13 +2148,17 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const nodeRadius = 6;
 			const nodeX = parentLeft - horizontalGap - totalNodeWidth; // 左侧节点X坐标
 
-			// 绘制连接线（镜像）
+			// 计算圆圈位置（在节点框左侧，留 2px 间隙）
+			const circleX = nodeX - nodeRadius - 2;
+			const circleY = childCenterY;
+			const strokeWidth = 1.5; // 与连线粗细一致
+
+			// 绘制连接线（延伸到圆圈中心）
 			const path = linesGroup.createSvg('path');
-			const nodeRight = nodeX + totalNodeWidth;
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeRight} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
-			path.setAttribute('stroke-width', '1.5');
+			path.setAttribute('stroke-width', strokeWidth);
 			path.setAttribute('fill', 'none');
 
 			// 节点背景
@@ -2176,10 +2188,6 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 空心圆和展开/收缩功能（在节点左侧）
 			if (child.children.length > 0) {
-				const circleX = nodeX - 4; // 调整位置确保与连线连接
-				const circleY = childCenterY;
-				const strokeWidth = 1.5; // 与连线粗细一致
-
 				// 空心圆背景（遮挡连接线）
 				const circleBg = nodesGroup.createSvg('circle');
 				circleBg.setAttribute('cx', circleX.toString());
@@ -2228,7 +2236,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 递归渲染子节点（继续向左展开）
 			if (!child.collapsed && child.children.length > 0) {
-				this.renderRadialMindMapChildrenLeft(child.children, linesGroup, nodesGroup, nodeX - 16, childCenterY, depth + 1); // 考虑空心圆的宽度
+				this.renderRadialMindMapChildrenLeft(child.children, linesGroup, nodesGroup, circleX - nodeRadius - horizontalGap, childCenterY, depth + 1); // 从圆圈左侧开始
 			}
 
 			currentY += childHeight + verticalGap;
