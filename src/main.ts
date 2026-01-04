@@ -136,6 +136,7 @@ interface MindMapNode {
 
 interface MindMapSettings {
 	enableWheelZoom: boolean;
+	enablePinchZoom: boolean;
 	defaultRenderMode: RenderMode;
 	notePanelWidth: number;
 	currentTheme: string;
@@ -149,6 +150,7 @@ interface MindMapSettings {
 
 const DEFAULT_SETTINGS: MindMapSettings = {
 	enableWheelZoom: false,
+	enablePinchZoom: false,
 	defaultRenderMode: 'clockwise',
 	notePanelWidth: 300,
 	currentTheme: 'Default',
@@ -385,6 +387,16 @@ class MindMapSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
+			.setName('Enable pinch zoom')
+			.setDesc('Allow zooming the mind map using trackpad pinch gesture (spread to zoom in, pinch to zoom out).')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.enablePinchZoom)
+				.onChange(async (value) => {
+					this.plugin.settings.enablePinchZoom = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
 			.setName('Note panel width')
 			.setDesc('Width of the note panel in pixels.')
 			.addText(text => text
@@ -522,6 +534,10 @@ class MindMapRenderer extends MarkdownRenderChild {
 	private mainGroup: SVGGElement | null = null;
 	private zoomLevelSelect: HTMLSelectElement | null = null; // 缩放比例下拉框
 
+	// Pinch zoom state
+	private initialPinchDistance: number = 0;
+	private initialScale: number = 1;
+
 	// 保存非全屏状态的缩放和平移
 	private savedScale: number = 1;
 	private savedTranslateX: number = 0;
@@ -585,12 +601,18 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const stack: { node: MindMapNode; level: number }[] = [];
 		let currentNode: MindMapNode | null = null;
 		let noteLines: string[] = [];
+		let nodeIndex = 0; // 用于生成稳定 ID
 
 		const flushNote = () => {
 			if (currentNode && noteLines.length > 0) {
 				currentNode.note = noteLines.join('\n').trim();
 				noteLines = [];
 			}
+		};
+
+		// 生成稳定的节点 ID
+		const generateStableId = (text: string, level: number, index: number): string => {
+			return `heading-${level}-${index}-${text.substring(0, 20).replace(/\s+/g, '_')}`;
 		};
 
 		for (const line of lines) {
@@ -606,7 +628,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 				const level = headingMatch[1].length; // # 的数量代表层级
 				const nodeText = headingMatch[2].trim();
 
-				const nodeId = `node-${Math.random().toString(36).substr(2, 9)}`;
+				const nodeId = generateStableId(nodeText, level, nodeIndex++);
 				const newNode: MindMapNode = {
 					id: nodeId,
 					text: nodeText,
@@ -670,10 +692,16 @@ class MindMapRenderer extends MarkdownRenderChild {
 			id: 'root',
 			text: rootTitle,
 			children: [],
-			collapsed: false
+			collapsed: collapsedStateMap.get('root') || false
 		};
 
 		const stack: { node: MindMapNode; level: number; indent: number }[] = [{ node: root, level: -1, indent: -1 }];
+		let nodeIndex = 0; // 用于生成稳定 ID
+
+		// 生成稳定的节点 ID
+		const generateStableId = (text: string, indent: number, index: number): string => {
+			return `list-${indent}-${index}-${text.substring(0, 20).replace(/\s+/g, '_')}`;
+		};
 
 		// 计算缩进宽度（Tab算作4个空格）
 		const getIndentWidth = (line: string): number => {
@@ -703,7 +731,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			// 移除列表标记（- 或 *）
 			const nodeText = trimmed.replace(/^[-*]\s*/, '').trim();
 
-			const nodeId = `node-${Math.random().toString(36).substr(2, 9)}`;
+			const nodeId = generateStableId(nodeText, indent, nodeIndex++);
 			const newNode: MindMapNode = {
 				id: nodeId,
 				text: nodeText,
@@ -938,6 +966,20 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const separator2 = controls.createSpan();
 		separator2.style.cssText = 'width: 1px; background: #ddd; margin: 0 5px;';
 
+		// Expand All button
+		const expandAllBtn = controls.createEl('button');
+		expandAllBtn.textContent = '⊞';
+		this.styleButton(expandAllBtn);
+		expandAllBtn.title = 'Expand all';
+		expandAllBtn.addEventListener('click', () => this.expandAll());
+
+		// Collapse All button
+		const collapseAllBtn = controls.createEl('button');
+		collapseAllBtn.textContent = '⊟';
+		this.styleButton(collapseAllBtn);
+		collapseAllBtn.title = 'Collapse all';
+		collapseAllBtn.addEventListener('click', () => this.collapseAll());
+
 		// Copy as PNG button
 		const copyBtn = controls.createEl('button');
 		copyBtn.textContent = '📷';
@@ -1033,12 +1075,115 @@ class MindMapRenderer extends MarkdownRenderChild {
 				e.preventDefault();
 				const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
 				this.zoom(zoomFactor, e.clientX, e.clientY);
-			});
+			}, { passive: false });
+		}
+
+		// Pinch zoom with trackpad (only if enabled in settings)
+		if (this.settings.enablePinchZoom) {
+			// macOS 触控板双指捏合：通过 wheel 事件 + ctrlKey 检测
+			svg.addEventListener('wheel', (e: WheelEvent) => {
+				// macOS 触控板捏合手势会触发带 ctrlKey 的 wheel 事件
+				if (e.ctrlKey) {
+					e.preventDefault();
+					// deltaY 为正表示缩小（捏合），为负表示放大（张开）
+					const zoomFactor = e.deltaY > 0 ? 0.95 : 1.05;
+					this.zoom(zoomFactor, e.clientX, e.clientY);
+				}
+			}, { passive: false });
+
+			// Safari gesture 事件支持（更精确的捏合手势）
+			svg.addEventListener('gesturestart', ((e: any) => {
+				e.preventDefault();
+				this.initialScale = this.scale;
+			}) as EventListener, { passive: false });
+
+			svg.addEventListener('gesturechange', ((e: any) => {
+				e.preventDefault();
+				const newScale = Math.max(0.1, Math.min(5, this.initialScale * e.scale));
+				
+				// 应用缩放，以手势中心点为中心
+				if (this.svg) {
+					const rect = this.svg.getBoundingClientRect();
+					const centerX = e.clientX - rect.left;
+					const centerY = e.clientY - rect.top;
+					
+					this.translateX = centerX - (centerX - this.translateX) * (newScale / this.scale);
+					this.translateY = centerY - (centerY - this.translateY) * (newScale / this.scale);
+				}
+				
+				this.scale = newScale;
+				this.applyTransform();
+				
+				// 更新缩放百分比选择框
+				if (this.zoomLevelSelect) {
+					this.updateZoomLevelSelect(this.zoomLevelSelect, this.scale);
+				}
+			}) as EventListener, { passive: false });
+
+			// 触摸屏设备的双指缩放（保留原有功能）
+			svg.addEventListener('touchstart', (e: TouchEvent) => {
+				if (e.touches.length === 2) {
+					// 双指捏合手势
+					e.preventDefault();
+					const touch1 = e.touches[0];
+					const touch2 = e.touches[1];
+					this.initialPinchDistance = Math.hypot(
+						touch2.clientX - touch1.clientX,
+						touch2.clientY - touch1.clientY
+					);
+					this.initialScale = this.scale;
+				}
+			}, { passive: false });
+
+			svg.addEventListener('touchmove', (e: TouchEvent) => {
+				if (e.touches.length === 2) {
+					e.preventDefault();
+					const touch1 = e.touches[0];
+					const touch2 = e.touches[1];
+					const currentDistance = Math.hypot(
+						touch2.clientX - touch1.clientX,
+						touch2.clientY - touch1.clientY
+					);
+					
+					// 计算缩放比例
+					const scaleFactor = currentDistance / this.initialPinchDistance;
+					const newScale = Math.max(0.1, Math.min(5, this.initialScale * scaleFactor));
+					
+					// 计算中心点（两个手指的中点）
+					const centerX = (touch1.clientX + touch2.clientX) / 2;
+					const centerY = (touch1.clientY + touch2.clientY) / 2;
+					
+					// 应用缩放
+					if (this.svg) {
+						const rect = this.svg.getBoundingClientRect();
+						const svgCenterX = centerX - rect.left;
+						const svgCenterY = centerY - rect.top;
+						
+						this.translateX = svgCenterX - (svgCenterX - this.translateX) * (newScale / this.scale);
+						this.translateY = svgCenterY - (svgCenterY - this.translateY) * (newScale / this.scale);
+					}
+					
+					this.scale = newScale;
+					this.applyTransform();
+					
+					// 更新缩放百分比选择框
+					if (this.zoomLevelSelect) {
+						this.updateZoomLevelSelect(this.zoomLevelSelect, this.scale);
+					}
+				}
+			}, { passive: false });
 		}
 
 		// Pan with mouse drag
 		svg.addEventListener('mousedown', (e: MouseEvent) => {
 			if (e.button === 0) { // Left mouse button
+				// 检查目标是否是可点击元素（circle 或 text）
+				const target = e.target as Element;
+				if (target.tagName === 'circle' || target.tagName === 'text') {
+					// 不启动拖拽，让 click 事件处理
+					return;
+				}
+				
 				this.isDragging = true;
 				this.dragStartX = e.clientX - this.translateX;
 				this.dragStartY = e.clientY - this.translateY;
@@ -1298,7 +1443,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const textWidth = this.calculateTextWidth(node.text, depth);
 		// 叶子节点线段长度需要比文字长一些
 		const lineLength = textWidth + 25;
-		const nodeRadius = 6; // 空心圆半径
+		const nodeRadius = 5; // 空心圆半径
 		
 		// 连线粗细根据层级变化
 		const strokeWidth = Math.max(1.2, 2.2 - depth * 0.3);
@@ -1377,7 +1522,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const isLeaf = node.children.length === 0 || node.collapsed;
 		const textWidth = this.calculateTextWidth(node.text, depth);
 		const lineLength = textWidth + 25;
-		const nodeRadius = 6;
+		const nodeRadius = 5;
 		const fontSize = Math.max(11, 13 - depth * 0.5);
 		const fontWeight = depth === 0 ? '600' : 'normal';
 		const textColor = this.settings.fontColor;
@@ -1467,41 +1612,20 @@ class MindMapRenderer extends MarkdownRenderChild {
 			noteIcon.addEventListener('click', showNote);
 		}
 
-		// 非叶子节点：绘制空心圆
+		// 非叶子节点：绘制 XMind 风格圆圈
 		if (!isLeaf || (node.children.length > 0 && node.collapsed)) {
 			const circleX = x + lineLength + nodeRadius;
 			
-			// 空心圆背景（白色填充）
-			const circleBg = nodeGroup.createSvg('circle');
-			circleBg.setAttribute('cx', circleX.toString());
-			circleBg.setAttribute('cy', y.toString());
-			circleBg.setAttribute('r', (nodeRadius + 1).toString());
-			circleBg.setAttribute('fill', this.settings.nodeBackgroundColor);
-
-			// 空心圆
-			const circle = nodeGroup.createSvg('circle');
-			circle.setAttribute('cx', circleX.toString());
-			circle.setAttribute('cy', y.toString());
-			circle.setAttribute('r', nodeRadius.toString());
-			circle.setAttribute('fill', this.settings.nodeBackgroundColor);
-			circle.setAttribute('stroke', textColor);
-			circle.setAttribute('stroke-width', '1.5');
-			circle.style.cursor = 'pointer';
-			circle.addEventListener('click', toggleNode);
-
-			// 如果已折叠，显示折叠指示器
-			if (node.children.length > 0 && node.collapsed) {
-				const plusText = nodeGroup.createSvg('text');
-				plusText.setAttribute('x', (circleX - 3).toString());
-				plusText.setAttribute('y', (y + 4).toString());
-				plusText.setAttribute('fill', textColor);
-				plusText.setAttribute('font-size', '12');
-				plusText.setAttribute('font-weight', 'bold');
-				plusText.setAttribute('font-family', 'system-ui, sans-serif');
-				plusText.textContent = '+';
-				plusText.style.cursor = 'pointer';
-				plusText.addEventListener('click', toggleNode);
-			}
+			this.createXMindCircle(
+				nodeGroup,
+				circleX,
+				y,
+				nodeRadius,
+				textColor,
+				node.children.length,
+				node.collapsed,
+				toggleNode
+			);
 		}
 		// 叶子节点：不绘制空心圆，只有横线和文字
 
@@ -1602,16 +1726,37 @@ class MindMapRenderer extends MarkdownRenderChild {
 		}
 	}
 
+	// 不清空容器，只清空 SVG 内容，避免全屏模式退出
 	private refresh() {
-		// Preserve zoom state during refresh
+		if (!this.wrapper || !this.svg || !this.mainGroup) return;
+		
+		// 保存状态
 		const savedScale = this.scale;
 		const savedTranslateX = this.translateX;
 		const savedTranslateY = this.translateY;
 		
-		this.container.innerHTML = '';
-		this.render();
+		// 清空 SVG 内容
+		while (this.mainGroup.firstChild) {
+			this.mainGroup.removeChild(this.mainGroup.firstChild);
+		}
 		
-		// Restore zoom state
+		// 重新渲染
+		const linesGroup = this.mainGroup.createSvg('g') as SVGGElement;
+		linesGroup.setAttribute('class', 'mindmap-lines');
+		const nodesGroup = this.mainGroup.createSvg('g') as SVGGElement;
+		nodesGroup.setAttribute('class', 'mindmap-nodes');
+		
+		switch (this.renderMode) {
+			case 'clockwise':
+				this.renderRadialMindMap(this.root, linesGroup, nodesGroup);
+				break;
+			case 'logic':
+			default:
+				this.renderOutlineView(this.root, linesGroup, nodesGroup);
+				break;
+		}
+		
+		// 恢复缩放状态
 		this.scale = savedScale;
 		this.translateX = savedTranslateX;
 		this.translateY = savedTranslateY;
@@ -1654,52 +1799,60 @@ class MindMapRenderer extends MarkdownRenderChild {
 			this.addNoteIcon(nodesGroup, startX + textWidth + 2, startY, root.note, 14, 'white', root.text);
 		}
 
-		// 全部子节点向右展开
-		if (!root.collapsed && root.children.length > 0) {
-			const parentRight = startX + totalNodeWidth;
+		// 全部子节点向右展开（中心节点不提供收缩功能）
+		if (root.children.length > 0) {
+			const parentRight = startX + totalNodeWidth; // 从节点框右边缘开始
 			this.renderOutlineViewChildren(root.children, linesGroup, nodesGroup, parentRight, startY, 1);
 		}
 	}
 
 	// 大纲模式子节点渲染（全部向右）
-	private renderOutlineViewChildren(
-		children: MindMapNode[],
-		linesGroup: SVGGElement,
-		nodesGroup: SVGGElement,
-		parentRight: number,
-		parentY: number,
-		depth: number
-	) {
-		const lineColor = this.settings.lineColor;
-		const horizontalGap = 30;
-		const verticalGap = 8;
+			private renderOutlineViewChildren(
+			children: MindMapNode[],
+			linesGroup: SVGGElement,
+			nodesGroup: SVGGElement,
+			parentRight: number,
+			parentY: number,
+			depth: number
+		) {
+			const lineColor = this.settings.lineColor;
+			const horizontalGap = 30;
+			const verticalGap = 8;
+	
+			const childHeights = children.map(child => this.calculateRadialMindMapTreeHeight(child));
+			const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
+	
+			let currentY = parentY - totalChildrenHeight / 2;
+			const lineStartX = parentRight;
+			const turnX = parentRight + horizontalGap / 2;
+	
+			children.forEach((child, i) => {
+				const childHeight = childHeights[i];
+				const childCenterY = currentY + childHeight / 2;
+	
+				const fontSize = Math.max(10, 13 - depth);
+				const textWidth = this.calculateTextWidth(child.text, depth);
+				const noteIconWidth = child.note ? 18 : 0;
+				const totalNodeWidth = textWidth + noteIconWidth;
+				const nodeHeight = fontSize + 10;
+				const nodeX = parentRight + horizontalGap;
+				const nodeRadius = 5;
+				const circleGap = 3; // 圆圈与节点框的间距
 
-		const childHeights = children.map(child => this.calculateRadialMindMapTreeHeight(child));
-		const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
+				// 计算圆圈位置（节点框右侧 + 间距 + 圆圈半径）
+				const circleX = nodeX + totalNodeWidth + circleGap + nodeRadius;
+				const circleY = childCenterY;
+				const strokeWidth = 1.5; // 与连线粗细一致
 
-		let currentY = parentY - totalChildrenHeight / 2;
-		const lineStartX = parentRight;
-		const turnX = parentRight + horizontalGap / 2;
-
-		children.forEach((child, i) => {
-			const childHeight = childHeights[i];
-			const childCenterY = currentY + childHeight / 2;
-
-			const fontSize = Math.max(10, 13 - depth);
-			const textWidth = this.calculateTextWidth(child.text, depth);
-			const noteIconWidth = child.note ? 18 : 0;
-			const totalNodeWidth = textWidth + noteIconWidth;
-			const nodeHeight = fontSize + 10;
-			const nodeX = parentRight + horizontalGap;
-
-			// 绘制连接线
-			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeX} ${childCenterY}`;
-			path.setAttribute('d', d);
-			path.setAttribute('stroke', lineColor);
-			path.setAttribute('stroke-width', '1.5');
-			path.setAttribute('fill', 'none');
-
+				// 绘制连接线（根据是否有子节点决定终点）
+				const path = linesGroup.createSvg('path');
+				// 有子节点时，连接线止于圆圈左边缘（即节点框右侧 + 3px 间距）
+				const lineEndX = child.children.length > 0 ? nodeX + totalNodeWidth + circleGap : nodeX + totalNodeWidth;
+				const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${lineEndX} ${childCenterY}`;
+				path.setAttribute('d', d);
+				path.setAttribute('stroke', lineColor);
+				path.setAttribute('stroke-width', strokeWidth);
+				path.setAttribute('fill', 'none');
 			// 节点背景
 			const bgRect = nodesGroup.createSvg('rect');
 			bgRect.setAttribute('x', nodeX.toString());
@@ -1725,9 +1878,34 @@ class MindMapRenderer extends MarkdownRenderChild {
 				this.addNoteIcon(nodesGroup, nodeX + textWidth + 2, childCenterY, child.note, fontSize, lineColor);
 			}
 
+			// 圆圈和展开/收缩功能
+			if (child.children.length > 0) {
+				// 点击事件
+				const toggleNode = (e: MouseEvent) => {
+					e.preventDefault();
+					e.stopPropagation();
+					e.stopImmediatePropagation();
+					this.isDragging = false;
+					child.collapsed = !child.collapsed;
+					collapsedStateMap.set(child.id, child.collapsed);
+					this.refresh();
+				};
+
+				this.createXMindCircle(
+					nodesGroup,
+					circleX,
+					circleY,
+					nodeRadius,
+					lineColor,
+					child.children.length,
+					child.collapsed,
+					toggleNode
+				);
+			}
+
 			// 递归渲染子节点
 			if (!child.collapsed && child.children.length > 0) {
-				const childRight = nodeX + totalNodeWidth;
+				const childRight = nodeX + totalNodeWidth; // 从节点框右边缘开始
 				this.renderOutlineViewChildren(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
 			}
 
@@ -1771,7 +1949,8 @@ class MindMapRenderer extends MarkdownRenderChild {
 			this.addNoteIcon(nodesGroup, rootX + textWidth + 2, centerY, root.note, 14, 'white', root.text);
 		}
 
-		if (!root.collapsed && root.children.length > 0) {
+		// 中心节点不提供收缩功能，直接渲染子节点
+		if (root.children.length > 0) {
 			const children = root.children;
 			// 计算左右分配：前半部分在右边，后半部分在左边
 			// 奇数时右边多一个
@@ -1781,13 +1960,13 @@ class MindMapRenderer extends MarkdownRenderChild {
 
 			// 渲染右侧子节点
 			if (rightChildren.length > 0) {
-				const parentRight = rootX + totalNodeWidth;
+				const parentRight = rootX + totalNodeWidth; // 从节点框右边缘开始
 				this.renderRadialMindMapChildrenRight(rightChildren, linesGroup, nodesGroup, parentRight, centerY, 1);
 			}
 
 			// 渲染左侧子节点（镜像布局）
 			if (leftChildren.length > 0) {
-				const parentLeft = rootX;
+				const parentLeft = rootX; // 从节点框左边缘开始
 				this.renderRadialMindMapChildrenLeft(leftChildren, linesGroup, nodesGroup, parentLeft, centerY, 1);
 			}
 		}
@@ -1823,13 +2002,22 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const totalNodeWidth = textWidth + noteIconWidth;
 			const nodeHeight = fontSize + 10;
 			const nodeX = parentRight + horizontalGap;
+			const nodeRadius = 5;
+			const circleGap = 3; // 圆圈与节点框的间距
 
-			// 绘制连接线
+			// 计算圆圈位置（节点框右侧 + 间距 + 圆圈半径）
+			const circleX = nodeX + totalNodeWidth + circleGap + nodeRadius;
+			const circleY = childCenterY;
+			const strokeWidth = 1.5; // 与连线粗细一致
+
+			// 绘制连接线（根据是否有子节点决定终点）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeX} ${childCenterY}`;
+			// 有子节点时，连接线止于圆圈左边缘（即节点框右侧 + 3px 间距）
+			const lineEndX = child.children.length > 0 ? nodeX + totalNodeWidth + circleGap : nodeX + totalNodeWidth;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${lineEndX} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
-			path.setAttribute('stroke-width', '1.5');
+			path.setAttribute('stroke-width', strokeWidth);
 			path.setAttribute('fill', 'none');
 
 			// 节点背景
@@ -1857,9 +2045,34 @@ class MindMapRenderer extends MarkdownRenderChild {
 				this.addNoteIcon(nodesGroup, nodeX + textWidth + 2, childCenterY, child.note, fontSize, lineColor, child.text);
 			}
 
+			// 圆圈和展开/收缩功能
+			if (child.children.length > 0) {
+				// 点击事件
+				const toggleNode = (e: MouseEvent) => {
+					e.preventDefault();
+					e.stopPropagation();
+					e.stopImmediatePropagation();
+					this.isDragging = false;
+					child.collapsed = !child.collapsed;
+					collapsedStateMap.set(child.id, child.collapsed);
+					this.refresh();
+				};
+
+				this.createXMindCircle(
+					nodesGroup,
+					circleX,
+					circleY,
+					nodeRadius,
+					lineColor,
+					child.children.length,
+					child.collapsed,
+					toggleNode
+				);
+			}
+
 			// 递归渲染子节点
 			if (!child.collapsed && child.children.length > 0) {
-				const childRight = nodeX + totalNodeWidth;
+				const childRight = nodeX + totalNodeWidth; // 从节点框右边缘开始
 				this.renderRadialMindMapChildrenRight(child.children, linesGroup, nodesGroup, childRight, childCenterY, depth + 1);
 			}
 
@@ -1896,15 +2109,23 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const noteIconWidth = child.note ? 18 : 0;
 			const totalNodeWidth = textWidth + noteIconWidth;
 			const nodeHeight = fontSize + 10;
+			const nodeRadius = 5; // 统一使用 5，与右侧保持一致
+			const circleGap = 3; // 圆圈与节点框的间距
 			const nodeX = parentLeft - horizontalGap - totalNodeWidth; // 左侧节点X坐标
 
-			// 绘制连接线（镜像）
+			// 计算圆圈位置（节点框左侧 - 间距 - 圆圈半径）
+			const circleX = nodeX - circleGap - nodeRadius;
+			const circleY = childCenterY;
+			const strokeWidth = 1.5; // 与连线粗细一致
+
+			// 绘制连接线（根据是否有子节点决定终点）
 			const path = linesGroup.createSvg('path');
-			const nodeRight = nodeX + totalNodeWidth;
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeRight} ${childCenterY}`;
+			// 有子节点时，连接线止于圆圈右边缘（即节点框左侧 - 3px 间距）
+			const lineEndX = child.children.length > 0 ? nodeX - circleGap : nodeX;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${lineEndX} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
-			path.setAttribute('stroke-width', '1.5');
+			path.setAttribute('stroke-width', strokeWidth);
 			path.setAttribute('fill', 'none');
 
 			// 节点背景
@@ -1932,9 +2153,34 @@ class MindMapRenderer extends MarkdownRenderChild {
 				this.addNoteIcon(nodesGroup, nodeX + textWidth + 2, childCenterY, child.note, fontSize, lineColor, child.text);
 			}
 
+			// 圆圈和展开/收缩功能（在节点左侧）
+			if (child.children.length > 0) {
+				// 点击事件
+				const toggleNode = (e: MouseEvent) => {
+					e.preventDefault();
+					e.stopPropagation();
+					e.stopImmediatePropagation();
+					this.isDragging = false;
+					child.collapsed = !child.collapsed;
+					collapsedStateMap.set(child.id, child.collapsed);
+					this.refresh();
+				};
+
+				this.createXMindCircle(
+					nodesGroup,
+					circleX,
+					circleY,
+					nodeRadius,
+					lineColor,
+					child.children.length,
+					child.collapsed,
+					toggleNode
+				);
+			}
+
 			// 递归渲染子节点（继续向左展开）
 			if (!child.collapsed && child.children.length > 0) {
-				this.renderRadialMindMapChildrenLeft(child.children, linesGroup, nodesGroup, nodeX, childCenterY, depth + 1);
+				this.renderRadialMindMapChildrenLeft(child.children, linesGroup, nodesGroup, nodeX, childCenterY, depth + 1); // 从节点框左边缘开始
 			}
 
 			currentY += childHeight + verticalGap;
@@ -1954,6 +2200,87 @@ class MindMapRenderer extends MarkdownRenderChild {
 			}
 		}
 		return Math.max(28, totalHeight);
+	}
+
+	// XMind 风格的圆圈交互组件
+	private createXMindCircle(
+		group: SVGGElement,
+		circleX: number,
+		circleY: number,
+		nodeRadius: number,
+		lineColor: string,
+		childCount: number,
+		isCollapsed: boolean,
+		onClick: (e: MouseEvent) => void
+	) {
+		// 创建圆圈容器组
+		const circleGroup = group.createSvg('g') as SVGGElement;
+		
+		// 默认隐藏，收缩时始终显示
+		if (!isCollapsed) {
+			circleGroup.style.opacity = '0';
+			circleGroup.style.transition = 'opacity 0.15s ease';
+		}
+		
+		// 圆圈背景（遮挡连接线）
+		const circleBg = circleGroup.createSvg('circle');
+		circleBg.setAttribute('cx', circleX.toString());
+		circleBg.setAttribute('cy', circleY.toString());
+		circleBg.setAttribute('r', (nodeRadius + 2).toString());
+		circleBg.setAttribute('fill', this.settings.nodeBackgroundColor);
+		
+		// 圆圈（始终空心）
+		const circle = circleGroup.createSvg('circle');
+		circle.setAttribute('cx', circleX.toString());
+		circle.setAttribute('cy', circleY.toString());
+		circle.setAttribute('r', nodeRadius.toString());
+		circle.setAttribute('fill', this.settings.nodeBackgroundColor);
+		circle.setAttribute('stroke', lineColor);
+		circle.setAttribute('stroke-width', '1');
+		circle.style.cursor = 'pointer';
+		
+		// 圆圈内的文本（- 或数字）
+		const indicatorText = circleGroup.createSvg('text');
+		indicatorText.setAttribute('x', circleX.toString());
+		indicatorText.setAttribute('y', (circleY + 3).toString());
+		indicatorText.setAttribute('fill', lineColor);
+		indicatorText.setAttribute('font-size', isCollapsed ? '7' : '8');
+		indicatorText.setAttribute('font-weight', '600');
+		indicatorText.setAttribute('font-family', 'system-ui, sans-serif');
+		indicatorText.setAttribute('text-anchor', 'middle');
+		indicatorText.style.cursor = 'pointer';
+		
+		// 展开显示 - 号，收缩显示子节点数量
+		if (isCollapsed) {
+			indicatorText.textContent = childCount.toString();
+		} else {
+			indicatorText.textContent = '−'; // 用 Unicode 减号代替普通 -
+		}
+		
+		// 透明悬停区域（比圆圈大，方便触发）
+		const hoverArea = circleGroup.createSvg('circle');
+		hoverArea.setAttribute('cx', circleX.toString());
+		hoverArea.setAttribute('cy', circleY.toString());
+		hoverArea.setAttribute('r', (nodeRadius + 8).toString());
+		hoverArea.setAttribute('fill', 'transparent');
+		hoverArea.style.cursor = 'pointer';
+		
+		// 悬停事件（仅在展开状态时生效）
+		if (!isCollapsed) {
+			hoverArea.addEventListener('mouseenter', () => {
+				circleGroup.style.opacity = '1';
+			});
+			hoverArea.addEventListener('mouseleave', () => {
+				circleGroup.style.opacity = '0';
+			});
+		}
+		
+		// 点击事件
+		hoverArea.addEventListener('click', onClick);
+		circle.addEventListener('click', onClick);
+		indicatorText.addEventListener('click', onClick);
+		
+		return circleGroup;
 	}
 
 	// 添加备注图标
