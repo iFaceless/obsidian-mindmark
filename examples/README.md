@@ -49,7 +49,6 @@ This example demonstrates:
 ## Syntax Comparison
 
 ### List Syntax
-```markdown
 ```mindmap
 # Root Node
 - Child Node 1
@@ -58,10 +57,8 @@ This example demonstrates:
 - Child Node 2
   - Grandchild 2.1
 ```
-```
 
 ### Heading Syntax
-```markdown
 ```mindmap
 ## Root Node
 ### Child Node 1
@@ -76,7 +73,6 @@ Even more notes...
 ### Child Node 2
 #### Grandchild 2.1
 Additional notes...
-```
 ```
 
 ## Tips
