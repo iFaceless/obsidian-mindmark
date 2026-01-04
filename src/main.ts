@@ -1824,19 +1824,21 @@ class MindMapRenderer extends MarkdownRenderChild {
 				const nodeX = parentRight + horizontalGap;
 				const nodeRadius = 5;
 				const circleGap = 3; // 圆圈与节点框的间距
-	
+
 				// 计算圆圈位置（节点框右侧 + 间距 + 圆圈半径）
-				const circleX = nodeX + totalNodeWidth + circleGap + nodeRadius;			const circleY = childCenterY;
-			const strokeWidth = 1.5; // 与连线粗细一致
+				const circleX = nodeX + totalNodeWidth + circleGap + nodeRadius;
+				const circleY = childCenterY;
+				const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到圆圈左边缘）
-			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX - nodeRadius} ${childCenterY}`;
-			path.setAttribute('d', d);
-			path.setAttribute('stroke', lineColor);
-			path.setAttribute('stroke-width', strokeWidth);
-			path.setAttribute('fill', 'none');
-
+				// 绘制连接线（根据是否有子节点决定终点）
+				const path = linesGroup.createSvg('path');
+				// 有子节点时，连接线止于圆圈左边缘（即节点框右侧 + 3px 间距）
+				const lineEndX = child.children.length > 0 ? nodeX + totalNodeWidth + circleGap : nodeX + totalNodeWidth;
+				const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${lineEndX} ${childCenterY}`;
+				path.setAttribute('d', d);
+				path.setAttribute('stroke', lineColor);
+				path.setAttribute('stroke-width', strokeWidth);
+				path.setAttribute('fill', 'none');
 			// 节点背景
 			const bgRect = nodesGroup.createSvg('rect');
 			bgRect.setAttribute('x', nodeX.toString());
@@ -1994,9 +1996,11 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const circleY = childCenterY;
 			const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到圆圈左边缘）
+			// 绘制连接线（根据是否有子节点决定终点）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX - nodeRadius} ${childCenterY}`;
+			// 有子节点时，连接线止于圆圈左边缘（即节点框右侧 + 3px 间距）
+			const lineEndX = child.children.length > 0 ? nodeX + totalNodeWidth + circleGap : nodeX + totalNodeWidth;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${lineEndX} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
 			path.setAttribute('stroke-width', strokeWidth);
@@ -2091,7 +2095,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const noteIconWidth = child.note ? 18 : 0;
 			const totalNodeWidth = textWidth + noteIconWidth;
 			const nodeHeight = fontSize + 10;
-			const nodeRadius = 6;
+			const nodeRadius = 5; // 统一使用 5，与右侧保持一致
 			const circleGap = 3; // 圆圈与节点框的间距
 			const nodeX = parentLeft - horizontalGap - totalNodeWidth; // 左侧节点X坐标
 
@@ -2100,9 +2104,11 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const circleY = childCenterY;
 			const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到圆圈右边缘）
+			// 绘制连接线（根据是否有子节点决定终点）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX + nodeRadius} ${childCenterY}`;
+			// 有子节点时，连接线止于圆圈右边缘（即节点框左侧 - 3px 间距）
+			const lineEndX = child.children.length > 0 ? nodeX - circleGap : nodeX;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${lineEndX} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
 			path.setAttribute('stroke-width', strokeWidth);
