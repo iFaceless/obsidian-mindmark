@@ -1429,7 +1429,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const textWidth = this.calculateTextWidth(node.text, depth);
 		// 叶子节点线段长度需要比文字长一些
 		const lineLength = textWidth + 25;
-		const nodeRadius = 6; // 空心圆半径
+		const nodeRadius = 5; // 空心圆半径
 		
 		// 连线粗细根据层级变化
 		const strokeWidth = Math.max(1.2, 2.2 - depth * 0.3);
@@ -1508,7 +1508,7 @@ class MindMapRenderer extends MarkdownRenderChild {
 		const isLeaf = node.children.length === 0 || node.collapsed;
 		const textWidth = this.calculateTextWidth(node.text, depth);
 		const lineLength = textWidth + 25;
-		const nodeRadius = 6;
+		const nodeRadius = 5;
 		const fontSize = Math.max(11, 13 - depth * 0.5);
 		const fontWeight = depth === 0 ? '600' : 'normal';
 		const textColor = this.settings.fontColor;
@@ -1712,34 +1712,41 @@ class MindMapRenderer extends MarkdownRenderChild {
 		}
 	}
 
+	// 不清空容器，只清空 SVG 内容，避免全屏模式退出
 	private refresh() {
-		// Preserve zoom and fullscreen state during refresh
+		if (!this.wrapper || !this.svg || !this.mainGroup) return;
+		
+		// 保存状态
 		const savedScale = this.scale;
 		const savedTranslateX = this.translateX;
 		const savedTranslateY = this.translateY;
-		const wasFullscreen = this.isFullscreen;
 		
-		this.container.innerHTML = '';
-		this.render();
+		// 清空 SVG 内容
+		while (this.mainGroup.firstChild) {
+			this.mainGroup.removeChild(this.mainGroup.firstChild);
+		}
 		
-		// Restore zoom state
+		// 重新渲染
+		const linesGroup = this.mainGroup.createSvg('g') as SVGGElement;
+		linesGroup.setAttribute('class', 'mindmap-lines');
+		const nodesGroup = this.mainGroup.createSvg('g') as SVGGElement;
+		nodesGroup.setAttribute('class', 'mindmap-nodes');
+		
+		switch (this.renderMode) {
+			case 'clockwise':
+				this.renderRadialMindMap(this.root, linesGroup, nodesGroup);
+				break;
+			case 'logic':
+			default:
+				this.renderOutlineView(this.root, linesGroup, nodesGroup);
+				break;
+		}
+		
+		// 恢复缩放状态
 		this.scale = savedScale;
 		this.translateX = savedTranslateX;
 		this.translateY = savedTranslateY;
 		this.applyTransform();
-		
-		// Restore fullscreen state
-		if (wasFullscreen && this.wrapper) {
-			this.isFullscreen = true;
-			this.wrapper.style.height = '100vh';
-			this.wrapper.style.background = this.settings.canvasBackgroundColor;
-			
-			// Update fullscreen button
-			if (this.fullscreenBtn) {
-				this.fullscreenBtn.textContent = '⛶';
-				this.fullscreenBtn.title = 'Exit fullscreen';
-			}
-		}
 	}
 
 	// 大纲模式渲染（全部向右展开）
@@ -1786,46 +1793,45 @@ class MindMapRenderer extends MarkdownRenderChild {
 	}
 
 	// 大纲模式子节点渲染（全部向右）
-	private renderOutlineViewChildren(
-		children: MindMapNode[],
-		linesGroup: SVGGElement,
-		nodesGroup: SVGGElement,
-		parentRight: number,
-		parentY: number,
-		depth: number
-	) {
-		const lineColor = this.settings.lineColor;
-		const horizontalGap = 30;
-		const verticalGap = 8;
-
-		const childHeights = children.map(child => this.calculateRadialMindMapTreeHeight(child));
-		const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
-
-		let currentY = parentY - totalChildrenHeight / 2;
-		const lineStartX = parentRight;
-		const turnX = parentRight + horizontalGap / 2;
-
-		children.forEach((child, i) => {
-			const childHeight = childHeights[i];
-			const childCenterY = currentY + childHeight / 2;
-
-			const fontSize = Math.max(10, 13 - depth);
-			const textWidth = this.calculateTextWidth(child.text, depth);
-			const noteIconWidth = child.note ? 18 : 0;
-			const totalNodeWidth = textWidth + noteIconWidth;
-			const nodeHeight = fontSize + 10;
-			const nodeX = parentRight + horizontalGap;
-			const nodeRadius = 6;
-			const circleGap = 3; // 圆圈与节点框的间距
-
-			// 计算圆圈位置（节点框右侧 + 间距 + 圆圈半径）
-			const circleX = nodeX + totalNodeWidth + circleGap + nodeRadius;
-			const circleY = childCenterY;
+			private renderOutlineViewChildren(
+			children: MindMapNode[],
+			linesGroup: SVGGElement,
+			nodesGroup: SVGGElement,
+			parentRight: number,
+			parentY: number,
+			depth: number
+		) {
+			const lineColor = this.settings.lineColor;
+			const horizontalGap = 30;
+			const verticalGap = 8;
+	
+			const childHeights = children.map(child => this.calculateRadialMindMapTreeHeight(child));
+			const totalChildrenHeight = childHeights.reduce((sum, h) => sum + h, 0) + (children.length - 1) * verticalGap;
+	
+			let currentY = parentY - totalChildrenHeight / 2;
+			const lineStartX = parentRight;
+			const turnX = parentRight + horizontalGap / 2;
+	
+			children.forEach((child, i) => {
+				const childHeight = childHeights[i];
+				const childCenterY = currentY + childHeight / 2;
+	
+				const fontSize = Math.max(10, 13 - depth);
+				const textWidth = this.calculateTextWidth(child.text, depth);
+				const noteIconWidth = child.note ? 18 : 0;
+				const totalNodeWidth = textWidth + noteIconWidth;
+				const nodeHeight = fontSize + 10;
+				const nodeX = parentRight + horizontalGap;
+				const nodeRadius = 5;
+				const circleGap = 3; // 圆圈与节点框的间距
+	
+				// 计算圆圈位置（节点框右侧 + 间距 + 圆圈半径）
+				const circleX = nodeX + totalNodeWidth + circleGap + nodeRadius;			const circleY = childCenterY;
 			const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到节点框左边缘）
+			// 绘制连接线（延伸到圆圈左边缘）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeX} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX - nodeRadius} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
 			path.setAttribute('stroke-width', strokeWidth);
@@ -1980,16 +1986,17 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const totalNodeWidth = textWidth + noteIconWidth;
 			const nodeHeight = fontSize + 10;
 			const nodeX = parentRight + horizontalGap;
-			const nodeRadius = 6;
+			const nodeRadius = 5;
+			const circleGap = 3; // 圆圈与节点框的间距
 
-			// 计算圆圈位置（紧贴节点框右侧）
-			const circleX = nodeX + totalNodeWidth + nodeRadius;
+			// 计算圆圈位置（节点框右侧 + 间距 + 圆圈半径）
+			const circleX = nodeX + totalNodeWidth + circleGap + nodeRadius;
 			const circleY = childCenterY;
 			const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到节点框左边缘）
+			// 绘制连接线（延伸到圆圈左边缘）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeX} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX - nodeRadius} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
 			path.setAttribute('stroke-width', strokeWidth);
@@ -2085,16 +2092,17 @@ class MindMapRenderer extends MarkdownRenderChild {
 			const totalNodeWidth = textWidth + noteIconWidth;
 			const nodeHeight = fontSize + 10;
 			const nodeRadius = 6;
+			const circleGap = 3; // 圆圈与节点框的间距
 			const nodeX = parentLeft - horizontalGap - totalNodeWidth; // 左侧节点X坐标
 
-			// 计算圆圈位置（紧贴节点框左侧）
-			const circleX = nodeX - nodeRadius;
+			// 计算圆圈位置（节点框左侧 - 间距 - 圆圈半径）
+			const circleX = nodeX - circleGap - nodeRadius;
 			const circleY = childCenterY;
 			const strokeWidth = 1.5; // 与连线粗细一致
 
-			// 绘制连接线（延伸到节点框右边缘）
+			// 绘制连接线（延伸到圆圈右边缘）
 			const path = linesGroup.createSvg('path');
-			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${nodeX + totalNodeWidth} ${childCenterY}`;
+			const d = `M ${lineStartX} ${parentY} L ${turnX} ${parentY} L ${turnX} ${childCenterY} L ${circleX + nodeRadius} ${childCenterY}`;
 			path.setAttribute('d', d);
 			path.setAttribute('stroke', lineColor);
 			path.setAttribute('stroke-width', strokeWidth);
@@ -2208,15 +2216,15 @@ class MindMapRenderer extends MarkdownRenderChild {
 		circle.setAttribute('r', nodeRadius.toString());
 		circle.setAttribute('fill', this.settings.nodeBackgroundColor);
 		circle.setAttribute('stroke', lineColor);
-		circle.setAttribute('stroke-width', '1.5');
+		circle.setAttribute('stroke-width', '1');
 		circle.style.cursor = 'pointer';
 		
 		// 圆圈内的文本（- 或数字）
 		const indicatorText = circleGroup.createSvg('text');
 		indicatorText.setAttribute('x', circleX.toString());
-		indicatorText.setAttribute('y', (circleY + 3.5).toString());
+		indicatorText.setAttribute('y', (circleY + 3).toString());
 		indicatorText.setAttribute('fill', lineColor);
-		indicatorText.setAttribute('font-size', isCollapsed ? '9' : '10');
+		indicatorText.setAttribute('font-size', isCollapsed ? '7' : '8');
 		indicatorText.setAttribute('font-weight', '600');
 		indicatorText.setAttribute('font-family', 'system-ui, sans-serif');
 		indicatorText.setAttribute('text-anchor', 'middle');
