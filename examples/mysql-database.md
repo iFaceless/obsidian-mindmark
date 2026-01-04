@@ -6,7 +6,6 @@ This example demonstrates MySQL database architecture using multi-level heading 
 
 Copy the code block below into an Obsidian note to render the mind map:
 
-````markdown
 ```mindmap
 ## MySQL Architecture
 
@@ -159,4 +158,3 @@ Protect data at rest and in transit.
 - **Transparent Data Encryption (TDE)**: Automatic encryption of data files
 - **Key Management**: Secure storage and rotation of encryption keys
 ```
-````

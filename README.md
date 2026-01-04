@@ -2,7 +2,7 @@
 
 A powerful Obsidian plugin that renders Markdown lists and multi-level headings into interactive mind maps.
 
-![Render Example](assets/渲染图.png)
+![List Syntax Example](assets/examples/list-syntax-1.png)
 
 [中文文档](README_ZH.md)
 
@@ -190,14 +190,20 @@ Use `#` heading as root node, child nodes use `-` or `*`:
 
 ## 📸 Render Examples
 
-### Basic Rendering
-![Render Example](assets/渲染图.png)
+### List Syntax Example
+![List Syntax Example](assets/examples/list-syntax-1.png)
+
+### List Syntax Example (Expanded)
+![List Syntax Example Expanded](assets/examples/list-syntax-2.png)
+
+### Multi-level Heading Syntax Example
+![Multi-level Heading Example](assets/examples/multi-level-1.png)
+
+### Multi-level Heading Syntax Example (with Notes)
+![Multi-level Heading Example with Notes](assets/examples/multi-level-2.png)
 
 ### Settings Interface
 ![Settings](assets/settings.png)
-
-### Fullscreen Mode with Notes
-![Fullscreen + Notes](assets/fullscreen-with-notes.png)
 
 ## 💡 Tips
 
